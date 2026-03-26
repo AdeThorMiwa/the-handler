@@ -42,7 +42,7 @@ const preferencesSchema = z
     applicationDelayMinutes: z.number().min(1).max(120),
     minApplicationsPerDay: z.number().min(1).max(50),
     maxApplicationsPerDay: z.number().min(1).max(50),
-    preferredRoles: z.array(z.string()).min(1, "Select at least one role"),
+    preferredRoles: z.array(z.string()).min(0, "Select at least one role"),
     organizationBlacklist: z.array(z.string()),
     minSalary: z.number().min(0),
     currency: z.enum(CURRENCIES),

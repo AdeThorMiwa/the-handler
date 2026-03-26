@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   MapPin,
   Calendar,
@@ -30,11 +30,10 @@ import {
   SheetSection,
 } from "@/components/ui/sheet";
 import Button from "@/components/ui/button";
-
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { cn } from "@/lib/utils";
 import { getMatchScoreBg } from "@/types";
 import type { Job, ActivityEntry, ActivityType } from "@/types";
@@ -358,108 +357,64 @@ function ResumePreview({ job }: { job: Job }) {
 
 // ── Notes Editor ──────────────────────────────────────────────────────────────
 
+type NoteStatus = "idle" | "unsaved" | "saved";
+
 interface NotesEditorProps {
   initialValue: string;
-  onSave: (value: string) => void;
+  onSave: (html: string) => void;
 }
 
 function NotesEditor({ initialValue, onSave }: NotesEditorProps) {
-  const [value, setValue] = useState(initialValue);
-  const [saved, setSaved] = useState(true);
+  const [status, setStatus] = useState<NoteStatus>("idle");
 
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setValue(e.target.value);
-      setSaved(false);
+  const handleChange = useCallback((html: string) => {
+    console.log({ html });
+    setStatus("unsaved");
+  }, []);
+
+  const handleSave = useCallback(
+    (html: string) => {
+      onSave(html);
+      setStatus("saved");
     },
-    [],
+    [onSave],
   );
-
-  const handleSave = useCallback(() => {
-    onSave(value);
-    setSaved(true);
-  }, [value, onSave]);
 
   return (
     <SheetSection highlighted accentColor="purple">
-      <div className="flex items-center justify-between mb-2">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2.5">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-3.5 w-3.5 text-purple-500" />
           <span className="text-sm font-semibold text-foreground">
             Application log
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          {!saved && (
+        <div className="flex items-center gap-1.5 h-5">
+          {status === "unsaved" && (
             <span className="text-[11px] font-mono text-amber-600">
-              Unsaved
+              ● Unsaved
             </span>
           )}
-          {saved && value && (
+          {status === "saved" && (
             <span className="text-[11px] font-mono text-emerald-600 flex items-center gap-1">
               <CheckCircle2 className="h-3 w-3" />
               Saved
             </span>
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-6 text-[11px] px-2 py-0 border-purple-200 text-purple-600 hover:bg-purple-50"
-            onClick={handleSave}
-            disabled={saved}
-          >
-            Save
-          </Button>
         </div>
       </div>
 
-      {/* WYSIWYG toolbar placeholder */}
-      <div className="rounded-lg border border-purple-100 overflow-hidden bg-white shadow-sm">
-        <div className="flex items-center gap-1 px-2.5 py-1.5 bg-purple-50/60 border-b border-purple-100">
-          {["B", "I", "U"].map((mark) => (
-            <button
-              key={mark}
-              type="button"
-              className="w-5 h-5 rounded text-[11px] font-semibold text-purple-400 hover:bg-white hover:text-purple-700 transition-colors"
-            >
-              {mark}
-            </button>
-          ))}
-          <div className="w-px h-3.5 bg-purple-200 mx-1" />
-          {["—", "•", "1."].map((item) => (
-            <button
-              key={item}
-              type="button"
-              className="w-5 h-5 rounded text-[11px] font-mono text-purple-400 hover:bg-white hover:text-purple-700 transition-colors"
-            >
-              {item}
-            </button>
-          ))}
-          <div className="ml-auto text-[9px] font-mono text-purple-300 italic">
-            TipTap
-          </div>
-        </div>
-
-        <Textarea
-          value={value}
-          onChange={handleChange}
-          placeholder="Add notes about this application — interview prep, key contacts, compensation notes, follow-up reminders…"
-          className="min-h-30 border-0 rounded-none shadow-none focus-visible:ring-0 resize-none text-sm bg-transparent"
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-              e.preventDefault();
-              handleSave();
-            }
-          }}
-        />
-      </div>
-
-      <p className="text-[11px] font-mono text-purple-400/80 mt-1.5 flex items-center gap-1">
-        <span className="bg-purple-50 border border-purple-100 px-1 rounded text-[10px]">
-          ⌘S
-        </span>
-        to save · {value.trim().split(/\s+/).filter(Boolean).length} words
-      </p>
+      {/* Real TipTap editor */}
+      <RichTextEditor
+        initialContent={initialValue}
+        placeholder="Add notes about this application — interview prep, key contacts, compensation notes, follow-up reminders…"
+        onChange={handleChange}
+        onSave={handleSave}
+        minHeight="120px"
+        showWordCount={true}
+        className="border-purple-100 focus-within:ring-purple-300/40"
+      />
     </SheetSection>
   );
 }
@@ -479,15 +434,20 @@ export default function JobDetailSheet({
   onOpenChange,
   onJobUpdate,
 }: JobDetailSheetProps) {
-  const [notes, setNotes] = useState(job?.notes ?? "");
   const [activeTab, setActiveTab] = useState("overview");
 
-  // Sync notes when job changes
+  // Reset to overview tab whenever a different job is opened
+  useEffect(() => {
+    if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveTab("overview");
+    }
+  }, [job?.id, open]);
+
   const handleNoteSave = useCallback(
-    (value: string) => {
-      setNotes(value);
+    (html: string) => {
       if (job && onJobUpdate) {
-        onJobUpdate({ ...job, notes: value });
+        onJobUpdate({ ...job, notes: html });
       }
     },
     [job, onJobUpdate],
@@ -693,7 +653,11 @@ export default function JobDetailSheet({
 
             {/* Notes editor — highlighted section */}
             <section>
-              <NotesEditor initialValue={notes} onSave={handleNoteSave} />
+              <NotesEditor
+                key={job.id}
+                initialValue={job.notes ?? ""}
+                onSave={handleNoteSave}
+              />
             </section>
           </TabsContent>
 
@@ -746,7 +710,11 @@ export default function JobDetailSheet({
               {job.activityLog.length > 0 && (
                 <>
                   <Separator />
-                  <NotesEditor initialValue={notes} onSave={handleNoteSave} />
+                  <NotesEditor
+                    key={`activity-${job.id}`}
+                    initialValue={job.notes ?? ""}
+                    onSave={handleNoteSave}
+                  />
                 </>
               )}
             </div>

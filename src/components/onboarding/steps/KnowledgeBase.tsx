@@ -14,7 +14,7 @@ import {
 import Button from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import {
   Dialog,
   DialogContent,
@@ -24,11 +24,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import type { Resource, ResourceType } from "@/types";
-
-interface KnowledgeBaseProps {
-  resources: Resource[];
-  onResourcesChange: (resources: Resource[]) => void;
-}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -43,6 +38,17 @@ function formatDate(iso: string): string {
     year: "numeric",
   });
 }
+
+/** Strip HTML tags for plain-text previews */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// ── Type maps ─────────────────────────────────────────────────────────────────
 
 const resourceTypeIcon: Record<ResourceType, typeof FileText> = {
   file: FileText,
@@ -65,6 +71,7 @@ interface ResourceItemProps {
 
 function ResourceItem({ resource, onRemove }: ResourceItemProps) {
   const Icon = resourceTypeIcon[resource.type];
+  const preview = resource.content ? stripHtml(resource.content) : null;
 
   return (
     <motion.div
@@ -102,10 +109,10 @@ function ResourceItem({ resource, onRemove }: ResourceItemProps) {
               {formatFileSize(resource.fileSize)}
             </p>
           )}
-          {resource.content && (
+          {preview && (
             <p className="text-xs text-muted-foreground truncate">
-              {resource.content.slice(0, 60)}
-              {resource.content.length > 60 ? "…" : ""}
+              {preview.slice(0, 72)}
+              {preview.length > 72 ? "…" : ""}
             </p>
           )}
         </div>
@@ -130,16 +137,22 @@ function ResourceItem({ resource, onRemove }: ResourceItemProps) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-const KnowledgeBase = ({
+interface KnowledgeBaseProps {
+  resources: Resource[];
+  onResourcesChange: (resources: Resource[]) => void;
+}
+
+export default function KnowledgeBase({
   resources,
   onResourcesChange,
-}: KnowledgeBaseProps) => {
+}: KnowledgeBaseProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [urlValue, setUrlValue] = useState("");
   const [urlError, setUrlError] = useState("");
   const [isContextDialogOpen, setIsContextDialogOpen] = useState(false);
-  const [contextText, setContextText] = useState("");
+  // Store the TipTap HTML output
+  const [contextHtml, setContextHtml] = useState("");
   const [contextTitle, setContextTitle] = useState("");
 
   const addResource = useCallback(
@@ -216,7 +229,6 @@ const KnowledgeBase = ({
       ? trimmed
       : `https://${trimmed}`;
 
-    // Derive a display name from the URL
     let name = normalised;
     try {
       const { hostname, pathname } = new URL(normalised);
@@ -243,22 +255,32 @@ const KnowledgeBase = ({
 
   // ── Manual context ────────────────────────────────────────────────────────
 
+  const hasContent = stripHtml(contextHtml).trim().length > 0;
+
   const handleSaveContext = useCallback(() => {
-    if (!contextText.trim()) return;
+    if (!hasContent) return;
 
     const resource: Resource = {
       id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       type: "manual",
       name: contextTitle.trim() || "Additional Context",
-      content: contextText.trim(),
+      content: contextHtml,
       createdAt: new Date().toISOString(),
     };
 
     addResource(resource);
-    setContextText("");
+    setContextHtml("");
     setContextTitle("");
     setIsContextDialogOpen(false);
-  }, [contextText, contextTitle, addResource]);
+  }, [hasContent, contextHtml, contextTitle, addResource]);
+
+  const handleDialogClose = useCallback((open: boolean) => {
+    if (!open) {
+      setContextHtml("");
+      setContextTitle("");
+    }
+    setIsContextDialogOpen(open);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -426,8 +448,8 @@ const KnowledgeBase = ({
       )}
 
       {/* ── Manual Context Dialog ────────────────────────────────────────── */}
-      <Dialog open={isContextDialogOpen} onOpenChange={setIsContextDialogOpen}>
-        <DialogContent className="max-w-xl">
+      <Dialog open={isContextDialogOpen} onOpenChange={handleDialogClose}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Write Additional Context</DialogTitle>
             <DialogDescription>
@@ -453,52 +475,16 @@ const KnowledgeBase = ({
               />
             </div>
 
-            {/* WYSIWYG placeholder — TipTap integration point */}
+            {/* Real TipTap editor */}
             <div>
-              <Label htmlFor="context-body" className="mb-1.5 block">
-                Content
-              </Label>
-
-              {/* TipTap placeholder — styled to look like a rich editor toolbar */}
-              <div className="rounded-lg border border-input overflow-hidden">
-                <div className="flex items-center gap-1 px-3 py-2 bg-muted/50 border-b border-input">
-                  {["B", "I", "U"].map((mark) => (
-                    <button
-                      key={mark}
-                      type="button"
-                      className="w-6 h-6 rounded text-xs font-semibold text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
-                    >
-                      {mark}
-                    </button>
-                  ))}
-                  <div className="w-px h-4 bg-border mx-1" />
-                  {["H1", "H2", "¶"].map((block) => (
-                    <button
-                      key={block}
-                      type="button"
-                      className="px-1.5 h-6 rounded text-xs font-mono text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
-                    >
-                      {block}
-                    </button>
-                  ))}
-                  <div className="ml-auto text-[10px] font-mono text-muted-foreground/60 italic">
-                    TipTap
-                  </div>
-                </div>
-
-                <Textarea
-                  id="context-body"
-                  placeholder="I'm a senior frontend engineer with 6+ years of experience in React and TypeScript. I'm particularly passionate about design systems and developer tooling…"
-                  value={contextText}
-                  onChange={(e) => setContextText(e.target.value)}
-                  className="min-h-40 border-0 rounded-none shadow-none focus-visible:ring-0 resize-none"
-                />
-              </div>
-
-              <p className="text-xs text-muted-foreground mt-1.5">
-                {contextText.length} characters ·{" "}
-                {contextText.trim().split(/\s+/).filter(Boolean).length} words
-              </p>
+              <Label className="mb-1.5 block">Content</Label>
+              <RichTextEditor
+                placeholder="I'm a senior frontend engineer with 6+ years of experience in React and TypeScript. I'm particularly passionate about design systems and developer tooling…"
+                onChange={setContextHtml}
+                minHeight="160px"
+                showWordCount={true}
+                autoFocus={false}
+              />
             </div>
           </div>
 
@@ -507,11 +493,7 @@ const KnowledgeBase = ({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => {
-                setIsContextDialogOpen(false);
-                setContextText("");
-                setContextTitle("");
-              }}
+              onClick={() => handleDialogClose(false)}
             >
               Cancel
             </Button>
@@ -519,7 +501,7 @@ const KnowledgeBase = ({
               type="button"
               size="sm"
               onClick={handleSaveContext}
-              disabled={!contextText.trim()}
+              disabled={!hasContent}
               className="gap-1.5"
             >
               <CheckCircle2 className="h-4 w-4" />
@@ -530,6 +512,4 @@ const KnowledgeBase = ({
       </Dialog>
     </div>
   );
-};
-
-export default KnowledgeBase;
+}
