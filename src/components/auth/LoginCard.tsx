@@ -3,6 +3,7 @@ import { useGoogleLogin } from "@react-oauth/google";
 import { HardDrive, Mail, ShieldCheck, Sparkles } from "lucide-react";
 import Button from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import AuthService from "@/services/auth";
 
 interface LoginCardProps {
   onSuccess: () => void;
@@ -32,18 +33,34 @@ const permissionItems = [
   },
 ];
 
+// fetch scopes from backend
+const scopes = [
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/gmail.readonly",
+];
+
+const allScopeSatisfied = (authorizedScopes: string[]) => {
+  console.log({ authorizedScopes });
+  return scopes.every((scope) => authorizedScopes.includes(scope.trim()));
+};
+
 export default function LoginCard({ onSuccess }: LoginCardProps) {
   const login = useGoogleLogin({
     flow: "auth-code",
-    scope: [
-      "openid",
-      "email",
-      "profile",
-      "https://www.googleapis.com/auth/drive.file",
-      "https://www.googleapis.com/auth/gmail.readonly",
-    ].join(" "),
-    onSuccess: () => {
-      onSuccess();
+    scope: scopes.join(" "),
+    onSuccess: async (res) => {
+      try {
+        if (!allScopeSatisfied(res.scope.split(" "))) {
+          return;
+        }
+        await AuthService.authenticate(res.code);
+        onSuccess();
+      } catch (e) {
+        console.error("Auth failed: ", e);
+      }
     },
     onError: (error) => {
       console.error("Google login error:", error);

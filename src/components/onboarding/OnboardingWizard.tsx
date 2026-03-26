@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronRight, ChevronLeft, Check, Sparkles } from "lucide-react";
 import Button from "@/components/ui/button";
@@ -60,6 +60,18 @@ export default function OnboardingWizard({
     [],
   );
 
+  const currentStepIsValid = useMemo(() => {
+    if (currentStep === 1) {
+      return resources.length >= 1;
+    }
+
+    if (currentStep === 2) {
+      return connectedDirectories.length >= 1;
+    }
+
+    return false;
+  }, [currentStep, resources.length, connectedDirectories.length]);
+
   const progressValue = ((currentStep - 1) / (STEPS.length - 1)) * 100;
 
   const goToStep = useCallback(
@@ -71,12 +83,14 @@ export default function OnboardingWizard({
   );
 
   const handleNext = useCallback(() => {
+    if (!currentStepIsValid) return;
+
     if (currentStep < 3) {
       goToStep((currentStep + 1) as OnboardingStep);
     } else {
       onComplete();
     }
-  }, [currentStep, goToStep, onComplete]);
+  }, [currentStep, currentStepIsValid, goToStep, onComplete]);
 
   const handleBack = useCallback(() => {
     if (currentStep > 1) {
@@ -198,7 +212,10 @@ export default function OnboardingWizard({
               {currentStep === 1 && (
                 <KnowledgeBase
                   resources={resources}
-                  onResourcesChange={setResources}
+                  onAddResource={(r) => setResources((prev) => [...prev, r])}
+                  onRemoveResource={(id) =>
+                    setResources((prev) => prev.filter((r) => r.id !== id))
+                  }
                 />
               )}
               {currentStep === 2 && (
@@ -248,7 +265,12 @@ export default function OnboardingWizard({
                   ))}
                 </div>
 
-                <Button size="sm" onClick={handleNext} className="gap-1.5">
+                <Button
+                  disabled={!currentStepIsValid}
+                  size="sm"
+                  onClick={handleNext}
+                  className="gap-1.5"
+                >
                   {isLastStep ? "Launch" : "Continue"}
                   <ChevronRight className="h-4 w-4" />
                 </Button>

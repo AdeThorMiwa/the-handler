@@ -2,7 +2,6 @@ import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Upload,
-  Link,
   FileText,
   Globe,
   AlignLeft,
@@ -10,6 +9,9 @@ import {
   Plus,
   File,
   CheckCircle2,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import Button from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +25,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+import KnowledgeBaseService from "@/services/knowledge";
 import type { Resource, ResourceType } from "@/types";
 
 function formatFileSize(bytes: number): string {
@@ -39,13 +43,17 @@ function formatDate(iso: string): string {
   });
 }
 
-/** Strip HTML tags for plain-text previews */
 function stripHtml(html: string): string {
   return html
     .replace(/<[^>]+>/g, " ")
     .replace(/&[a-z]+;/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return "An unexpected error occurred. Please try again.";
 }
 
 // ── Type maps ─────────────────────────────────────────────────────────────────
@@ -62,7 +70,108 @@ const resourceTypeLabel: Record<ResourceType, string> = {
   manual: "Context",
 };
 
-// ── Resource List Item ────────────────────────────────────────────────────────
+type UploadStatus = "uploading" | "error";
+
+interface PendingUpload {
+  tempId: string;
+  file: File;
+  status: UploadStatus;
+  errorMessage?: string;
+}
+
+interface PendingUploadItemProps {
+  upload: PendingUpload;
+  onRetry: (tempId: string) => void;
+  onDismiss: (tempId: string) => void;
+}
+
+function PendingUploadItem({
+  upload,
+  onRetry,
+  onDismiss,
+}: PendingUploadItemProps) {
+  const isUploading = upload.status === "uploading";
+  const isError = upload.status === "error";
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -8, height: 0, marginBottom: 0 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      className={cn(
+        "border-l-4 rounded-r-lg px-4 py-3 flex items-start gap-3 group",
+        isUploading && "border-purple-300 bg-purple-50/50",
+        isError && "border-rose-400 bg-rose-50/50",
+      )}
+    >
+      {/* Icon */}
+      <div
+        className={cn(
+          "shrink-0 w-7 h-7 rounded-md flex items-center justify-center mt-0.5",
+          isUploading && "bg-purple-100",
+          isError && "bg-rose-100",
+        )}
+      >
+        {isUploading && (
+          <Loader2 className="h-3.5 w-3.5 text-purple-500 animate-spin" />
+        )}
+        {isError && <AlertCircle className="h-3.5 w-3.5 text-rose-500" />}
+      </div>
+
+      {/* Details */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-medium text-foreground truncate">
+            {upload.file.name}
+          </p>
+          <span
+            className={cn(
+              "text-xs font-mono shrink-0 px-1.5 py-0.5 rounded",
+              isUploading && "bg-purple-100 text-purple-600",
+              isError && "bg-rose-100 text-rose-600",
+            )}
+          >
+            {isUploading ? "Uploading…" : "Failed"}
+          </span>
+        </div>
+
+        <p className="text-xs font-mono text-muted-foreground mt-0.5">
+          {formatFileSize(upload.file.size)}
+        </p>
+
+        {isError && upload.errorMessage && (
+          <p className="text-xs text-rose-600 mt-1 leading-snug">
+            {upload.errorMessage}
+          </p>
+        )}
+      </div>
+
+      {/* Actions (error only) */}
+      {isError && (
+        <div className="flex items-center gap-1 shrink-0 mt-0.5">
+          <button
+            type="button"
+            onClick={() => onRetry(upload.tempId)}
+            className="inline-flex items-center gap-1 h-6 px-2 rounded text-xs font-medium text-rose-600 hover:bg-rose-100 transition-colors"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </button>
+          <button
+            type="button"
+            onClick={() => onDismiss(upload.tempId)}
+            className="w-6 h-6 rounded flex items-center justify-center text-rose-400 hover:text-rose-600 hover:bg-rose-100 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+            <span className="sr-only">Dismiss</span>
+          </button>
+        </div>
+      )}
+    </motion.div>
+  );
+}
 
 interface ResourceItemProps {
   resource: Resource;
@@ -78,7 +187,7 @@ function ResourceItem({ resource, onRemove }: ResourceItemProps) {
       layout
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -8, height: 0 }}
+      exit={{ opacity: 0, x: -8, height: 0, marginBottom: 0 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className="border-l-4 border-purple-400 bg-slate-50/70 rounded-r-lg px-4 py-3 flex items-start gap-3 group"
     >
@@ -89,7 +198,7 @@ function ResourceItem({ resource, onRemove }: ResourceItemProps) {
 
       {/* Details */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-medium text-foreground truncate">
             {resource.name}
           </p>
@@ -98,7 +207,7 @@ function ResourceItem({ resource, onRemove }: ResourceItemProps) {
           </span>
         </div>
 
-        <div className="flex items-center gap-2 mt-0.5">
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {resource.url && (
             <p className="text-xs text-muted-foreground truncate font-mono">
               {resource.url}
@@ -135,59 +244,104 @@ function ResourceItem({ resource, onRemove }: ResourceItemProps) {
   );
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
-
 interface KnowledgeBaseProps {
   resources: Resource[];
-  onResourcesChange: (resources: Resource[]) => void;
+  onAddResource: (resource: Resource) => void;
+  onRemoveResource: (id: string) => void;
 }
 
 export default function KnowledgeBase({
   resources,
-  onResourcesChange,
+  onAddResource,
+  onRemoveResource,
 }: KnowledgeBaseProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [isDragging, setIsDragging] = useState(false);
-  const [urlValue, setUrlValue] = useState("");
-  const [urlError, setUrlError] = useState("");
+
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+
   const [isContextDialogOpen, setIsContextDialogOpen] = useState(false);
-  // Store the TipTap HTML output
   const [contextHtml, setContextHtml] = useState("");
   const [contextTitle, setContextTitle] = useState("");
+  const [isContextSaving, setIsContextSaving] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
 
-  const addResource = useCallback(
-    (resource: Resource) => {
-      onResourcesChange([...resources, resource]);
+  const hasContent = stripHtml(contextHtml).trim().length > 0;
+
+  const runUpload = useCallback(
+    (tempId: string, file: File) => {
+      KnowledgeBaseService.uploadKnowledgeBase(file.name, file)
+        .then((result) => {
+          // Move from pending → confirmed resource
+          onAddResource({
+            id: result.id,
+            type: "file",
+            name: result.label,
+            fileSize: file.size,
+            mimeType: file.type,
+            createdAt: result.last_updated,
+          });
+          setPendingUploads((prev) => prev.filter((u) => u.tempId !== tempId));
+        })
+        .catch((err: unknown) => {
+          setPendingUploads((prev) =>
+            prev.map((u) =>
+              u.tempId === tempId
+                ? {
+                    ...u,
+                    status: "error" as const,
+                    errorMessage: getErrorMessage(err),
+                  }
+                : u,
+            ),
+          );
+        });
     },
-    [resources, onResourcesChange],
+    [onAddResource],
   );
-
-  const removeResource = useCallback(
-    (id: string) => {
-      onResourcesChange(resources.filter((r) => r.id !== id));
-    },
-    [resources, onResourcesChange],
-  );
-
-  // ── File handling ────────────────────────────────────────────────────────
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
-      if (!files) return;
-      Array.from(files).forEach((file) => {
-        const resource: Resource = {
-          id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          type: "file",
-          name: file.name,
-          fileSize: file.size,
-          mimeType: file.type,
-          createdAt: new Date().toISOString(),
-        };
-        addResource(resource);
-      });
+      if (!files || files.length === 0) return;
+
+      const incoming: PendingUpload[] = Array.from(files).map((file) => ({
+        tempId: `up-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${file.name}`,
+        file,
+        status: "uploading" as const,
+      }));
+
+      // Batch-add all pending items at once (single state update)
+      setPendingUploads((prev) => [...prev, ...incoming]);
+
+      // Kick off each upload independently
+      incoming.forEach(({ tempId, file }) => runUpload(tempId, file));
     },
-    [addResource],
+    [runUpload],
   );
+
+  const handleRetryUpload = useCallback(
+    (tempId: string) => {
+      const pending = pendingUploads.find((u) => u.tempId === tempId);
+      if (!pending) return;
+
+      // Reset back to uploading state
+      setPendingUploads((prev) =>
+        prev.map((u) =>
+          u.tempId === tempId
+            ? { ...u, status: "uploading" as const, errorMessage: undefined }
+            : u,
+        ),
+      );
+
+      runUpload(tempId, pending.file);
+    },
+    [pendingUploads, runUpload],
+  );
+
+  const handleDismissPending = useCallback((tempId: string) => {
+    setPendingUploads((prev) => prev.filter((u) => u.tempId !== tempId));
+  }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -203,90 +357,69 @@ export default function KnowledgeBase({
     setIsDragging(true);
   }, []);
 
-  const handleDragLeave = useCallback(() => {
-    setIsDragging(false);
-  }, []);
+  const handleDragLeave = useCallback(() => setIsDragging(false), []);
 
-  // ── URL handling ─────────────────────────────────────────────────────────
-
-  const handleAddUrl = useCallback(() => {
-    setUrlError("");
-    const trimmed = urlValue.trim();
-
-    if (!trimmed) {
-      setUrlError("Please enter a URL.");
-      return;
-    }
-
-    try {
-      new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
-    } catch {
-      setUrlError("That doesn't look like a valid URL.");
-      return;
-    }
-
-    const normalised = trimmed.startsWith("http")
-      ? trimmed
-      : `https://${trimmed}`;
-
-    let name = normalised;
-    try {
-      const { hostname, pathname } = new URL(normalised);
-      name = hostname.replace(/^www\./, "");
-      if (pathname && pathname !== "/") {
-        const parts = pathname.split("/").filter(Boolean);
-        if (parts.length > 0) name = `${name} / ${parts[parts.length - 1]}`;
-      }
-    } catch {
-      /* keep raw url as name */
-    }
-
-    const resource: Resource = {
-      id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      type: "url",
-      name,
-      url: normalised,
-      createdAt: new Date().toISOString(),
-    };
-
-    addResource(resource);
-    setUrlValue("");
-  }, [urlValue, addResource]);
-
-  // ── Manual context ────────────────────────────────────────────────────────
-
-  const hasContent = stripHtml(contextHtml).trim().length > 0;
-
-  const handleSaveContext = useCallback(() => {
+  const handleSaveContext = useCallback(async () => {
     if (!hasContent) return;
 
-    const resource: Resource = {
-      id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      type: "manual",
-      name: contextTitle.trim() || "Additional Context",
-      content: contextHtml,
-      createdAt: new Date().toISOString(),
-    };
+    setIsContextSaving(true);
+    setContextError(null);
 
-    addResource(resource);
-    setContextHtml("");
-    setContextTitle("");
-    setIsContextDialogOpen(false);
-  }, [hasContent, contextHtml, contextTitle, addResource]);
+    try {
+      const label = contextTitle.trim() || "Additional Context";
+      // Send plain text to the API; keep HTML locally for rich display
+      const plainContent = stripHtml(contextHtml);
 
-  const handleDialogClose = useCallback((open: boolean) => {
-    if (!open) {
+      const result = await KnowledgeBaseService.addKnowledgeBase(
+        label,
+        plainContent,
+      );
+
+      onAddResource({
+        id: result.id,
+        type: "manual",
+        name: result.label,
+        content: contextHtml, // preserve HTML for preview
+        createdAt: result.last_updated,
+      });
+
       setContextHtml("");
       setContextTitle("");
+      setIsContextDialogOpen(false);
+    } catch (err) {
+      setContextError(getErrorMessage(err));
+    } finally {
+      setIsContextSaving(false);
     }
-    setIsContextDialogOpen(open);
-  }, []);
+  }, [hasContent, contextHtml, contextTitle, onAddResource]);
+
+  const handleDialogClose = useCallback(
+    (open: boolean) => {
+      if (isContextSaving) return; // block close while saving
+      if (!open) {
+        setContextHtml("");
+        setContextTitle("");
+        setContextError(null);
+      }
+      setIsContextDialogOpen(open);
+    },
+    [isContextSaving],
+  );
+
+
+  const uploadingCount = pendingUploads.filter(
+    (u) => u.status === "uploading",
+  ).length;
+  const errorCount = pendingUploads.filter((u) => u.status === "error").length;
+  const totalVisible = resources.length + pendingUploads.length;
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
       {/* ── Dropzone ────────────────────────────────────────────────────── */}
       <div>
-        <Label className="mb-2 block">Resume & Documents</Label>
+        <Label className="mb-2 block">Resume &amp; Documents</Label>
         <motion.div
           animate={{
             borderColor: isDragging ? "rgb(168 85 247)" : "rgb(203 213 225)",
@@ -347,42 +480,6 @@ export default function KnowledgeBase({
         />
       </div>
 
-      {/* ── URL Input ───────────────────────────────────────────────────── */}
-      <div>
-        <Label className="mb-2 block">LinkedIn / Portfolio URL</Label>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Link className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="url"
-              placeholder="https://linkedin.com/in/yourname"
-              value={urlValue}
-              onChange={(e) => {
-                setUrlValue(e.target.value);
-                if (urlError) setUrlError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleAddUrl();
-              }}
-              className="pl-9"
-            />
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="default"
-            onClick={handleAddUrl}
-            className="gap-1.5 shrink-0"
-          >
-            <Plus className="h-4 w-4" />
-            Add
-          </Button>
-        </div>
-        {urlError && (
-          <p className="text-xs text-destructive mt-1.5">{urlError}</p>
-        )}
-      </div>
-
       {/* ── Manual Context ───────────────────────────────────────────────── */}
       <div>
         <Label className="mb-2 block">Additional Context</Label>
@@ -406,30 +503,60 @@ export default function KnowledgeBase({
         </button>
       </div>
 
-      {/* ── Resource List ────────────────────────────────────────────────── */}
+      {/* ── Resource + pending list ──────────────────────────────────────── */}
       <AnimatePresence>
-        {resources.length > 0 && (
+        {totalVisible > 0 && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.25 }}
           >
+            {/* Header row */}
             <div className="flex items-center gap-2 mb-3">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              {uploadingCount > 0 ? (
+                <Loader2 className="h-4 w-4 text-purple-500 animate-spin" />
+              ) : errorCount > 0 ? (
+                <AlertCircle className="h-4 w-4 text-rose-500" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              )}
               <span className="text-sm font-medium text-foreground">
-                {resources.length} resource{resources.length !== 1 ? "s" : ""}{" "}
-                added
+                {resources.length}{" "}
+                {resources.length === 1 ? "resource" : "resources"} added
+                {uploadingCount > 0 && (
+                  <span className="text-muted-foreground font-normal">
+                    {" "}
+                    · {uploadingCount} uploading
+                  </span>
+                )}
+                {errorCount > 0 && (
+                  <span className="text-rose-600 font-normal">
+                    {" "}
+                    · {errorCount} failed
+                  </span>
+                )}
               </span>
             </div>
 
             <div className="space-y-2">
               <AnimatePresence mode="popLayout">
+                {/* Confirmed resources */}
                 {resources.map((resource) => (
                   <ResourceItem
                     key={resource.id}
                     resource={resource}
-                    onRemove={removeResource}
+                    onRemove={onRemoveResource}
+                  />
+                ))}
+
+                {/* In-progress + error uploads */}
+                {pendingUploads.map((upload) => (
+                  <PendingUploadItem
+                    key={upload.tempId}
+                    upload={upload}
+                    onRetry={handleRetryUpload}
+                    onDismiss={handleDismissPending}
                   />
                 ))}
               </AnimatePresence>
@@ -438,7 +565,8 @@ export default function KnowledgeBase({
         )}
       </AnimatePresence>
 
-      {resources.length === 0 && (
+      {/* ── Empty state hint ─────────────────────────────────────────────── */}
+      {totalVisible === 0 && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-100">
           <File className="h-4 w-4 text-amber-500 shrink-0" />
           <p className="text-xs text-amber-700">
@@ -459,7 +587,7 @@ export default function KnowledgeBase({
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Title */}
+            {/* Title field */}
             <div>
               <Label htmlFor="context-title" className="mb-1.5 block">
                 Title{" "}
@@ -472,10 +600,11 @@ export default function KnowledgeBase({
                 placeholder="e.g. Career goals & soft skills"
                 value={contextTitle}
                 onChange={(e) => setContextTitle(e.target.value)}
+                disabled={isContextSaving}
               />
             </div>
 
-            {/* Real TipTap editor */}
+            {/* TipTap editor */}
             <div>
               <Label className="mb-1.5 block">Content</Label>
               <RichTextEditor
@@ -486,6 +615,36 @@ export default function KnowledgeBase({
                 autoFocus={false}
               />
             </div>
+
+            {/* Error banner */}
+            <AnimatePresence>
+              {contextError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex items-start gap-2.5 p-3 rounded-lg bg-rose-50 border border-rose-100"
+                >
+                  <AlertCircle className="h-4 w-4 text-rose-500 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-rose-700">
+                      Failed to save
+                    </p>
+                    <p className="text-xs text-rose-600 mt-0.5">
+                      {contextError}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setContextError(null)}
+                    className="text-rose-400 hover:text-rose-600 transition-colors shrink-0"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           <DialogFooter>
@@ -494,6 +653,7 @@ export default function KnowledgeBase({
               variant="outline"
               size="sm"
               onClick={() => handleDialogClose(false)}
+              disabled={isContextSaving}
             >
               Cancel
             </Button>
@@ -501,11 +661,20 @@ export default function KnowledgeBase({
               type="button"
               size="sm"
               onClick={handleSaveContext}
-              disabled={!hasContent}
-              className="gap-1.5"
+              disabled={!hasContent || isContextSaving}
+              className="gap-1.5 min-w-30"
             >
-              <CheckCircle2 className="h-4 w-4" />
-              Save context
+              {isContextSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" />
+                  Save context
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
