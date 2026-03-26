@@ -1,37 +1,45 @@
+import { NavLink, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Sparkles,
-  LayoutDashboard,
   FileText,
   Settings,
   Bell,
   BarChart3,
   ChevronRight,
   Zap,
+  LogOut,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Badge from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/auth/useAuth";
 
-interface SidebarProps {
-  activeView: string;
-  onViewChange: (view: string) => void;
-}
+// ── Nav items ─────────────────────────────────────────────────────────────────
 
 interface NavItem {
-  id: string;
+  to: string;
   label: string;
-  icon: typeof LayoutDashboard;
-  badge?: string | number;
+  icon: React.ElementType;
+  badge?: number;
 }
 
 const navItems: NavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "applications", label: "Applications", icon: FileText, badge: 9 },
-  { id: "analytics", label: "Analytics", icon: BarChart3 },
-  { id: "notifications", label: "Notifications", icon: Bell, badge: 2 },
-  { id: "settings", label: "Settings", icon: Settings },
+  {
+    to: "/dashboard/applications",
+    label: "Applications",
+    icon: FileText,
+    badge: 9,
+  },
+  { to: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
+  {
+    to: "/dashboard/notifications",
+    label: "Notifications",
+    icon: Bell,
+    badge: 2,
+  },
+  { to: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
 const stats = [
@@ -50,10 +58,20 @@ const stats = [
   },
 ];
 
-export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+
+export default function Sidebar() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login", { replace: true });
+  };
+
   return (
     <aside className="w-55 shrink-0 h-screen sticky top-0 flex flex-col bg-sidebar border-r border-sidebar-border overflow-hidden">
-      {/* Brand */}
+      {/* ── Brand ─────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-2.5 px-5 py-4 shrink-0">
         <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shadow-sm shadow-primary/25">
           <Sparkles className="h-3.5 w-3.5 text-primary-foreground" />
@@ -70,7 +88,7 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
 
       <Separator />
 
-      {/* Automation status pill */}
+      {/* ── Automation status ──────────────────────────────────────────── */}
       <div className="px-4 py-3 shrink-0">
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-100">
           <motion.div
@@ -90,60 +108,68 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
         </div>
       </div>
 
-      {/* Navigation */}
+      {/* ── Navigation ────────────────────────────────────────────────── */}
       <nav className="flex-1 overflow-y-auto px-3 py-1 space-y-0.5">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = activeView === item.id;
 
           return (
-            <motion.button
-              key={item.id}
-              onClick={() => onViewChange(item.id)}
-              whileTap={{ scale: 0.97 }}
-              className={cn(
-                "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150",
-                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                isActive
-                  ? "bg-primary/8 text-primary font-medium"
-                  : "text-sidebar-muted hover:bg-slate-50 hover:text-foreground",
-              )}
-              style={
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end
+              className={({ isActive }) =>
+                cn(
+                  "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm",
+                  "transition-all duration-150",
+                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  isActive
+                    ? "font-medium text-primary"
+                    : "text-sidebar-muted hover:bg-slate-50 hover:text-foreground",
+                )
+              }
+              style={({ isActive }) =>
                 isActive
                   ? { backgroundColor: "rgb(124 58 237 / 0.08)" }
                   : undefined
               }
             >
-              <Icon
-                className={cn(
-                  "h-4 w-4 shrink-0 transition-colors",
-                  isActive ? "text-primary" : "text-muted-foreground",
-                )}
-              />
-              <span className="flex-1 text-left truncate">{item.label}</span>
+              {({ isActive }) => (
+                <>
+                  <Icon
+                    className={cn(
+                      "h-4 w-4 shrink-0 transition-colors",
+                      isActive ? "text-primary" : "text-muted-foreground",
+                    )}
+                  />
 
-              {item.badge !== undefined && (
-                <span
-                  className={cn(
-                    "text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded-full min-w-4.5 text-center leading-none",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground",
+                  <span className="flex-1 truncate">{item.label}</span>
+
+                  {item.badge !== undefined && (
+                    <span
+                      className={cn(
+                        "text-[10px] font-mono font-semibold px-1.5 py-0.5",
+                        "rounded-full min-w-4.5 text-center leading-none",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {item.badge}
+                    </span>
                   )}
-                >
-                  {item.badge}
-                </span>
-              )}
 
-              {isActive && (
-                <ChevronRight className="h-3 w-3 text-primary shrink-0 opacity-60" />
+                  {isActive && (
+                    <ChevronRight className="h-3 w-3 text-primary/60 shrink-0" />
+                  )}
+                </>
               )}
-            </motion.button>
+            </NavLink>
           );
         })}
       </nav>
 
-      {/* Quick Stats */}
+      {/* ── Quick Stats ───────────────────────────────────────────────── */}
       <div className="px-4 py-3 shrink-0">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 px-1">
           This week
@@ -175,7 +201,7 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
 
       <Separator />
 
-      {/* User profile */}
+      {/* ── User profile + logout ──────────────────────────────────────── */}
       <div className="px-4 py-3.5 shrink-0">
         <div className="flex items-center gap-2.5">
           <Avatar className="h-7 w-7 shrink-0">
@@ -184,6 +210,7 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
               AT
             </AvatarFallback>
           </Avatar>
+
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-foreground truncate leading-none">
               Ade Thormiwa
@@ -192,12 +219,29 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
               ade@thormiwa.com
             </p>
           </div>
-          <Badge
-            variant="success"
-            className="text-[9px] py-0 px-1.5 h-4 font-mono shrink-0"
-          >
-            Pro
-          </Badge>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <Badge
+              variant="success"
+              className="text-[9px] py-0 px-1.5 h-4 font-mono"
+            >
+              Pro
+            </Badge>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Sign out"
+              className={cn(
+                "w-6 h-6 rounded-md flex items-center justify-center",
+                "text-muted-foreground hover:text-destructive hover:bg-rose-50",
+                "transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              )}
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="sr-only">Sign out</span>
+            </button>
+          </div>
         </div>
       </div>
     </aside>

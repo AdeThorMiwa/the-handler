@@ -362,9 +362,11 @@ type NoteStatus = "idle" | "unsaved" | "saved";
 interface NotesEditorProps {
   initialValue: string;
   onSave: (html: string) => void;
+  /** Called when the user sends a log entry via the Send button or ⌘Enter */
+  onLog: (html: string) => void;
 }
 
-function NotesEditor({ initialValue, onSave }: NotesEditorProps) {
+function NotesEditor({ initialValue, onSave, onLog }: NotesEditorProps) {
   const [status, setStatus] = useState<NoteStatus>("idle");
 
   const handleChange = useCallback((html: string) => {
@@ -378,6 +380,17 @@ function NotesEditor({ initialValue, onSave }: NotesEditorProps) {
       setStatus("saved");
     },
     [onSave],
+  );
+
+  // Called by RichTextEditor when user clicks Send / presses ⌘Enter.
+  // The editor clears itself automatically after calling this.
+  const handleSend = useCallback(
+    (html: string) => {
+      onLog(html);
+      // Reset the save-state indicator so it doesn't show stale "Saved"
+      setStatus("idle");
+    },
+    [onLog],
   );
 
   return (
@@ -408,10 +421,12 @@ function NotesEditor({ initialValue, onSave }: NotesEditorProps) {
       {/* Real TipTap editor */}
       <RichTextEditor
         initialContent={initialValue}
-        placeholder="Add notes about this application — interview prep, key contacts, compensation notes, follow-up reminders…"
+        placeholder="Log a note, update, or next step — press ⌘Enter or click Send to post it to the activity timeline…"
         onChange={handleChange}
         onSave={handleSave}
-        minHeight="120px"
+        onSend={handleSend}
+        showSendButton={true}
+        minHeight="100px"
         showWordCount={true}
         className="border-purple-100 focus-within:ring-purple-300/40"
       />
@@ -449,6 +464,45 @@ export default function JobDetailSheet({
       if (job && onJobUpdate) {
         onJobUpdate({ ...job, notes: html });
       }
+    },
+    [job, onJobUpdate],
+  );
+
+  /**
+   * Called when the user clicks "Send" (or presses ⌘Enter) in the log editor.
+   * Creates a `note_added` ActivityEntry from the HTML content, appends it to
+   * the job's activityLog, and switches to the Activity tab so the user can
+   * immediately see their new entry in the timeline.
+   */
+  const handleLog = useCallback(
+    (html: string) => {
+      if (!job) return;
+
+      // Strip tags to get a plain-text description for the timeline entry
+      const plainText = html
+        .replace(/<[^>]*>/g, " ")
+        .replace(/&[a-z]+;/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!plainText) return;
+
+      const entry = {
+        id: `act-log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        type: "note_added" as const,
+        title: "Log entry added",
+        description:
+          plainText.length > 400 ? `${plainText.slice(0, 397)}…` : plainText,
+        timestamp: new Date().toISOString(),
+      };
+
+      onJobUpdate?.({
+        ...job,
+        activityLog: [...job.activityLog, entry],
+      });
+
+      // Navigate to Activity tab so the user sees the newly posted entry
+      setActiveTab("activity");
     },
     [job, onJobUpdate],
   );
@@ -657,6 +711,7 @@ export default function JobDetailSheet({
                 key={job.id}
                 initialValue={job.notes ?? ""}
                 onSave={handleNoteSave}
+                onLog={handleLog}
               />
             </section>
           </TabsContent>
@@ -714,6 +769,7 @@ export default function JobDetailSheet({
                     key={`activity-${job.id}`}
                     initialValue={job.notes ?? ""}
                     onSave={handleNoteSave}
+                    onLog={handleLog}
                   />
                 </>
               )}

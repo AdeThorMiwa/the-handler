@@ -1,104 +1,128 @@
-import { useState, useCallback } from "react";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import Providers from "./Providers";
-import LoginCard from "@/components/auth/LoginCard";
-import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
-import Sidebar from "@/components/dashboard/Sidebar";
-import KanbanBoard from "@/components/dashboard/KanbanBoard";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { AppView } from "@/types";
+import LoginPage from "@/pages/LoginPage";
+import OnboardingPage from "@/pages/OnboardingPage";
+import DashboardPage, {
+  AnalyticsPage,
+  NotificationsPage,
+  SettingsPage,
+} from "@/pages/DashboardPage";
+import KanbanBoard from "@/components/dashboard/KanbanBoard";
+import { AuthProvider } from "./contexts/auth/provider";
 
-// ── View transition variants ───────────────────────────────────────────────────
+// ── Top-level page transition ─────────────────────────────────────────────────
 
 const pageVariants = {
-  enter: { opacity: 0, y: 10 },
-  center: { opacity: 1, y: 0 },
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0 },
   exit: { opacity: 0, y: -10 },
 };
 
 const pageTransition = {
-  duration: 0.32,
+  duration: 0.28,
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
-// ── Inner app (needs access to Providers context) ─────────────────────────────
+// ── Index redirect ────────────────────────────────────────────────────────────
+// Reads auth state from localStorage directly so it works outside the provider
+// (the provider re-hydrates the same values; this is just for the first render)
 
-function CareerOS() {
-  const [view, setView] = useState<AppView>("auth");
-  const [sidebarView, setSidebarView] = useState("dashboard");
+function IndexRedirect() {
+  const isAuthenticated = localStorage.getItem("career-os:auth") === "true";
+  const isOnboarded = localStorage.getItem("career-os:onboarded") === "true";
 
-  const handleAuthSuccess = useCallback(() => {
-    setView("onboarding");
-  }, []);
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isOnboarded) return <Navigate to="/onboarding" replace />;
+  return <Navigate to="/dashboard" replace />;
+}
 
-  const handleOnboardingComplete = useCallback(() => {
-    setView("dashboard");
-  }, []);
+// ── Animated route tree ───────────────────────────────────────────────────────
+//
+// We key the animation on the *top-level* segment only (login / onboarding /
+// dashboard) so that navigating between dashboard sub-routes (/dashboard/
+// applications → /dashboard/analytics) does NOT re-animate the whole page –
+// DashboardPage handles its own inner transition via its own AnimatePresence.
+
+function AppRoutes() {
+  const location = useLocation();
+
+  // "login" | "onboarding" | "dashboard" | ""
+  const topSegment = location.pathname.split("/")[1] ?? "";
 
   return (
-    <TooltipProvider delayDuration={400}>
-      <AnimatePresence mode="wait">
-        {/* ── Auth ────────────────────────────────────────────────────── */}
-        {view === "auth" && (
-          <motion.div
-            key="auth"
-            variants={pageVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={pageTransition}
-            className="min-h-screen"
-          >
-            <LoginCard onSuccess={handleAuthSuccess} />
-          </motion.div>
-        )}
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={topSegment}
+        variants={pageVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        transition={pageTransition}
+        // Ensure full viewport coverage so exiting pages don't collapse
+        className="min-h-screen"
+      >
+        {/*
+          Pass `location` to <Routes> so AnimatePresence can intercept the
+          unmount and let exit animations finish before switching.
+        */}
+        <Routes location={location}>
+          {/* ── Root redirect ──────────────────────────────────────── */}
+          <Route path="/" element={<IndexRedirect />} />
 
-        {/* ── Onboarding ───────────────────────────────────────────────── */}
-        {view === "onboarding" && (
-          <motion.div
-            key="onboarding"
-            variants={pageVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={pageTransition}
-            className="min-h-screen"
-          >
-            <OnboardingWizard onComplete={handleOnboardingComplete} />
-          </motion.div>
-        )}
+          {/* ── Auth ───────────────────────────────────────────────── */}
+          <Route path="/login" element={<LoginPage />} />
 
-        {/* ── Dashboard ────────────────────────────────────────────────── */}
-        {view === "dashboard" && (
-          <motion.div
-            key="dashboard"
-            variants={pageVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={pageTransition}
-            className="flex h-screen overflow-hidden bg-background"
-          >
-            {/* Sidebar */}
-            <Sidebar activeView={sidebarView} onViewChange={setSidebarView} />
+          {/* ── Onboarding ─────────────────────────────────────────── */}
+          <Route path="/onboarding" element={<OnboardingPage />} />
 
-            {/* Main content */}
-            <main className="flex-1 overflow-hidden min-w-0">
-              <KanbanBoard className="h-full" />
-            </main>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </TooltipProvider>
+          {/* ── Dashboard (nested) ─────────────────────────────────── */}
+          <Route path="/dashboard" element={<DashboardPage />}>
+            {/* Default sub-route: redirect to /dashboard/applications */}
+            <Route index element={<Navigate to="applications" replace />} />
+
+            {/* Kanban board – the primary view */}
+            <Route
+              path="applications"
+              element={<KanbanBoard className="h-full" />}
+            />
+
+            {/* Placeholder sections */}
+            <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
+
+          {/* ── Catch-all ──────────────────────────────────────────── */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
-// ── Root App ──────────────────────────────────────────────────────────────────
+// ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
   return (
-    <Providers>
-      <CareerOS />
-    </Providers>
+    <BrowserRouter>
+      {/* GoogleOAuthProvider */}
+      <Providers>
+        {/* App-level auth state (persisted in localStorage) */}
+        <AuthProvider>
+          {/* Radix Tooltip singleton */}
+          <TooltipProvider delayDuration={400}>
+            <AppRoutes />
+          </TooltipProvider>
+        </AuthProvider>
+      </Providers>
+    </BrowserRouter>
   );
 }
