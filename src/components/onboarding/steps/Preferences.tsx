@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -29,7 +29,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { roleOptions, countryOptions } from "@/data/mock";
+import { countryOptions } from "@/data/mock";
+import type { UserPreference } from "@/services/preference";
+import KnowledgeBaseService from "@/services/knowledge";
+import UserPreferenceService from "@/services/preference";
 
 // ── Schema ─────────────────────────────────────────────────────────────────────
 
@@ -39,17 +42,17 @@ const MODALITIES = ["remote", "onsite", "hybrid"] as const;
 const preferencesSchema = z
   .object({
     jobSearchTime: z.string().min(1, "Please set a search time"),
-    applicationDelayMinutes: z.number().min(1).max(120),
+    applicationDelayHour: z.number().min(1).max(120),
     minApplicationsPerDay: z.number().min(1).max(50),
     maxApplicationsPerDay: z.number().min(1).max(50),
-    preferredRoles: z.array(z.string()).min(0, "Select at least one role"),
+    preferredRoles: z.array(z.string()).min(1, "Select at least one role"),
     organizationBlacklist: z.array(z.string()),
     minSalary: z.number().min(0),
     currency: z.enum(CURRENCIES),
     modalities: z
       .array(z.enum(MODALITIES))
       .min(1, "Select at least one modality"),
-    countries: z.array(z.string()).min(1, "Select at least one country"),
+    countries: z.array(z.string()),
     autoApply: z.boolean(),
   })
   .refine((data) => data.minApplicationsPerDay <= data.maxApplicationsPerDay, {
@@ -58,22 +61,6 @@ const preferencesSchema = z
   });
 
 type FormValues = z.infer<typeof preferencesSchema>;
-
-// ── Defaults ───────────────────────────────────────────────────────────────────
-
-const defaultValues: FormValues = {
-  jobSearchTime: "09:00",
-  applicationDelayMinutes: 5,
-  minApplicationsPerDay: 3,
-  maxApplicationsPerDay: 10,
-  preferredRoles: [],
-  organizationBlacklist: [],
-  minSalary: 120000,
-  currency: "USD",
-  modalities: ["remote"],
-  countries: ["United States", "Remote (Global)"],
-  autoApply: true,
-};
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -255,35 +242,72 @@ function PillSelect({
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+const resolveDefaultValues = (preference?: UserPreference): FormValues => {
+  return {
+    jobSearchTime: preference?.job_search_at ?? "09:00",
+    applicationDelayHour: preference?.application_delay
+      ? Math.round(preference.application_delay / (60 * 60))
+      : 5,
+    minApplicationsPerDay: preference?.application_frequency_min || 1,
+    maxApplicationsPerDay: preference?.application_frequency_max ?? 10,
+    preferredRoles: preference?.preferred_roles ?? [],
+    organizationBlacklist: preference?.organization_blacklist ?? [],
+    minSalary: preference?.minimum_salary ?? 120000,
+    currency: preference?.salary_currency ?? "USD",
+    modalities: preference?.preferred_modalities ?? ["remote"],
+    countries: preference?.preferred_countries ?? [],
+    autoApply: preference?.auto_apply ?? true,
+  };
+};
 
 interface PreferencesProps {
+  preference?: UserPreference;
   onSubmit: () => void;
 }
 
-export default function Preferences({ onSubmit }: PreferencesProps) {
+export default function Preferences({
+  preference,
+  onSubmit,
+}: PreferencesProps) {
   const {
     register,
     control,
     handleSubmit,
-    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(preferencesSchema),
-    defaultValues,
+    defaultValues: resolveDefaultValues(preference),
     mode: "onChange",
   });
 
+  const [roleOptions, setRoleOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    KnowledgeBaseService.getRoleList().then(setRoleOptions);
+  }, []);
+
   const handleFormSubmit = useCallback(
-    (data: FormValues) => {
-      console.log({ data });
+    async (data: FormValues) => {
+      await UserPreferenceService.update({
+        application_delay: data.applicationDelayHour * 60 * 60, // convert to seconds
+        application_frequency_max: data.maxApplicationsPerDay,
+        application_frequency_min: data.minApplicationsPerDay,
+        auto_apply: true,
+        job_search_at: data.jobSearchTime,
+        minimum_salary: data.minSalary,
+        organization_blacklist: data.organizationBlacklist,
+        preferred_countries: data.countries,
+        preferred_modalities: data.modalities,
+        preferred_roles: data.preferredRoles,
+        salary_currency: data.currency,
+      });
       onSubmit();
     },
     [onSubmit],
   );
 
   return (
-    <form onSubmit={handleSubmit(handleFormSubmit)} noValidate>
+    <form onSubmit={handleSubmit(handleFormSubmit, console.log)} noValidate>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* ── Left Column: Automation ────────────────────────────────────── */}
         <div className="space-y-5">
@@ -320,19 +344,19 @@ export default function Preferences({ onSubmit }: PreferencesProps) {
             {/* Application Delay */}
             <div>
               <Controller
-                name="applicationDelayMinutes"
+                name="applicationDelayHour"
                 control={control}
                 render={({ field }) => (
                   <>
                     <div className="flex items-center justify-between mb-2">
                       <Label>Application delay</Label>
                       <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                        {field.value} min
+                        {field.value} hour
                       </span>
                     </div>
                     <Slider
                       min={1}
-                      max={60}
+                      max={24}
                       step={1}
                       value={[field.value]}
                       onValueChange={([v]) => field.onChange(v)}
@@ -342,10 +366,10 @@ export default function Preferences({ onSubmit }: PreferencesProps) {
               />
               <div className="flex justify-between mt-1">
                 <span className="text-[11px] font-mono text-muted-foreground">
-                  1 min
+                  1 hour
                 </span>
                 <span className="text-[11px] font-mono text-muted-foreground">
-                  60 min
+                  24 hour
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
@@ -622,10 +646,6 @@ export default function Preferences({ onSubmit }: PreferencesProps) {
           size="lg"
           disabled={isSubmitting}
           className="gap-2 min-w-40"
-          onClick={() => {
-            // Trigger validation feedback for empty required fields
-            setValue("preferredRoles", []);
-          }}
         >
           <Rocket className="h-4 w-4" />
           Launch Career OS

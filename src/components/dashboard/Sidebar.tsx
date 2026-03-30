@@ -4,8 +4,6 @@ import {
   Sparkles,
   FileText,
   Settings,
-  Bell,
-  BarChart3,
   ChevronRight,
   Zap,
   LogOut,
@@ -15,6 +13,8 @@ import Badge from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth/useAuth";
+import { useUser } from "@/contexts/user/useUser";
+import { useWeeklyStats } from "@/hooks/useWeeklyStats";
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
 
@@ -30,39 +30,44 @@ const navItems: NavItem[] = [
     to: "/dashboard/applications",
     label: "Applications",
     icon: FileText,
-    badge: 9,
+    // badge: 9,
   },
-  { to: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
-  {
-    to: "/dashboard/notifications",
-    label: "Notifications",
-    icon: Bell,
-    badge: 2,
-  },
+  // { to: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
+  // {
+  //   to: "/dashboard/notifications",
+  //   label: "Notifications",
+  //   icon: Bell,
+  //   badge: 2,
+  // },
   { to: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
-const stats = [
-  { label: "Applied", value: "2", color: "text-blue-600", bg: "bg-blue-50" },
-  {
-    label: "Interview",
-    value: "2",
-    color: "text-amber-600",
-    bg: "bg-amber-50",
-  },
-  {
-    label: "Offers",
-    value: "1",
-    color: "text-emerald-600",
-    bg: "bg-emerald-50",
-  },
-];
+function formatTo12Hour(timeStr: string) {
+  // 1. Split the string into hours and minutes
+  const [hoursStr, minutes] = timeStr.split(":");
+  let hours = parseInt(hoursStr, 10);
+
+  // 2. Determine AM or PM
+  const ampm = hours >= 12 ? "PM" : "AM";
+
+  // 3. Convert 0-23 hour scale to 1-12 scale
+  hours = hours % 12;
+  hours = hours ? hours : 12; // the hour '0' should be '12'
+
+  // 4. Pad hours with a leading zero if you want "01:10 AM" instead of "1:10 AM"
+  const formattedHours = hours.toString().padStart(2, "0");
+
+  return `${formattedHours}:${minutes} ${ampm}`;
+}
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 export default function Sidebar() {
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const { preference, username, email } = useUser();
+
+  const stats = useWeeklyStats();
 
   const handleLogout = () => {
     logout();
@@ -101,7 +106,8 @@ export default function Sidebar() {
               Automation active
             </p>
             <p className="text-[10px] font-mono text-emerald-600/80 mt-0.5 truncate">
-              Next scan: 09:00 AM
+              Next scan:{" "}
+              {formatTo12Hour(preference?.job_search_at ?? "00:00:00")}
             </p>
           </div>
           <Zap className="h-3 w-3 text-emerald-500 shrink-0" />
@@ -207,16 +213,20 @@ export default function Sidebar() {
           <Avatar className="h-7 w-7 shrink-0">
             <AvatarImage src="" alt="User" />
             <AvatarFallback className="text-[11px] bg-primary/10 text-primary">
-              AT
+              {username
+                .split(" ")
+                .map((p) => p[0])
+                .filter((_, n) => n < 2)
+                .join("")}
             </AvatarFallback>
           </Avatar>
 
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-foreground truncate leading-none">
-              Ade Thormiwa
+              {username}
             </p>
             <p className="text-[10px] font-mono text-muted-foreground truncate mt-0.5">
-              ade@thormiwa.com
+              {email}
             </p>
           </div>
 

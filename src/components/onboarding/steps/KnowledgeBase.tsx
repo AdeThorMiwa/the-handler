@@ -271,7 +271,7 @@ export default function KnowledgeBase({
 
   const runUpload = useCallback(
     (tempId: string, file: File) => {
-      KnowledgeBaseService.uploadKnowledgeBase(file.name, file)
+      KnowledgeBaseService.upload(file.name, file)
         .then((result) => {
           // Move from pending → confirmed resource
           onAddResource({
@@ -370,10 +370,7 @@ export default function KnowledgeBase({
       // Send plain text to the API; keep HTML locally for rich display
       const plainContent = stripHtml(contextHtml);
 
-      const result = await KnowledgeBaseService.addKnowledgeBase(
-        label,
-        plainContent,
-      );
+      const result = await KnowledgeBaseService.add(label, plainContent);
 
       onAddResource({
         id: result.id,
@@ -393,6 +390,18 @@ export default function KnowledgeBase({
     }
   }, [hasContent, contextHtml, contextTitle, onAddResource]);
 
+  const handleResourceRemoval = useCallback(
+    async (id: string) => {
+      try {
+        await KnowledgeBaseService.delete(id);
+        onRemoveResource(id);
+      } catch (err) {
+        setContextError(getErrorMessage(err));
+      }
+    },
+    [onRemoveResource],
+  );
+
   const handleDialogClose = useCallback(
     (open: boolean) => {
       if (isContextSaving) return; // block close while saving
@@ -405,7 +414,6 @@ export default function KnowledgeBase({
     },
     [isContextSaving],
   );
-
 
   const uploadingCount = pendingUploads.filter(
     (u) => u.status === "uploading",
@@ -546,7 +554,7 @@ export default function KnowledgeBase({
                   <ResourceItem
                     key={resource.id}
                     resource={resource}
-                    onRemove={onRemoveResource}
+                    onRemove={handleResourceRemoval}
                   />
                 ))}
 

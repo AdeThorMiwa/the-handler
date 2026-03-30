@@ -18,7 +18,7 @@ import {
   Building2,
   Globe,
   DollarSign,
-  Tag,
+  Rocket,
 } from "lucide-react";
 import {
   Sheet,
@@ -27,7 +27,6 @@ import {
   SheetDescription,
   SheetContent,
   SheetClose,
-  SheetSection,
 } from "@/components/ui/sheet";
 import Button from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -36,7 +35,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { cn } from "@/lib/utils";
 import { getMatchScoreBg } from "@/types";
-import type { Job, ActivityEntry, ActivityType } from "@/types";
+import type { ActivityEntry, ActivityType } from "@/types";
+import type { Application } from "@/services/application";
+import ApplicationService from "@/services/application";
+import _ from "lodash";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -82,16 +84,16 @@ function getCompanyInitials(company: string): string {
     .slice(0, 2);
 }
 
-const statusLabels: Record<Job["status"], string> = {
-  saved: "Saved",
+const statusLabels: Record<Application["status"], string> = {
+  ready: "Saved",
   applied: "Applied",
   interview: "Interview",
   declined: "Declined",
   offer: "Offer",
 };
 
-const statusColors: Record<Job["status"], string> = {
-  saved: "bg-slate-100 text-slate-600 border-slate-200",
+const statusColors: Record<Application["status"], string> = {
+  ready: "bg-slate-100 text-slate-600 border-slate-200",
   applied: "bg-blue-50 text-blue-700 border-blue-200",
   interview: "bg-amber-50 text-amber-700 border-amber-200",
   declined: "bg-rose-50 text-rose-600 border-rose-200",
@@ -152,8 +154,6 @@ function getActivityIcon(type: ActivityType) {
     }
   );
 }
-
-// ── Activity Timeline ─────────────────────────────────────────────────────────
 
 function ActivityTimeline({ entries }: { entries: ActivityEntry[] }) {
   if (entries.length === 0) {
@@ -247,10 +247,8 @@ function ActivityTimeline({ entries }: { entries: ActivityEntry[] }) {
   );
 }
 
-// ── Resume Preview ────────────────────────────────────────────────────────────
-
-function ResumePreview({ job }: { job: Job }) {
-  if (!job.tailoredResumeUrl) {
+function ResumePreview({ resumeUrl }: { resumeUrl: string }) {
+  if (!resumeUrl) {
     return (
       <div className="flex flex-col items-center justify-center py-10 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
         <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center mb-3 shadow-sm">
@@ -333,11 +331,7 @@ function ResumePreview({ job }: { job: Job }) {
           className="flex-1 gap-1.5 text-xs"
           asChild
         >
-          <a
-            href={job.tailoredResumeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <a href={resumeUrl} target="_blank" rel="noopener noreferrer">
             <ExternalLink className="h-3.5 w-3.5" />
             View PDF
           </a>
@@ -355,10 +349,6 @@ function ResumePreview({ job }: { job: Job }) {
   );
 }
 
-// ── Notes Editor ──────────────────────────────────────────────────────────────
-
-type NoteStatus = "idle" | "unsaved" | "saved";
-
 interface NotesEditorProps {
   initialValue: string;
   onSave: (html: string) => void;
@@ -367,17 +357,13 @@ interface NotesEditorProps {
 }
 
 function NotesEditor({ initialValue, onSave, onLog }: NotesEditorProps) {
-  const [status, setStatus] = useState<NoteStatus>("idle");
-
   const handleChange = useCallback((html: string) => {
     console.log({ html });
-    setStatus("unsaved");
   }, []);
 
   const handleSave = useCallback(
     (html: string) => {
       onSave(html);
-      setStatus("saved");
     },
     [onSave],
   );
@@ -388,37 +374,12 @@ function NotesEditor({ initialValue, onSave, onLog }: NotesEditorProps) {
     (html: string) => {
       onLog(html);
       // Reset the save-state indicator so it doesn't show stale "Saved"
-      setStatus("idle");
     },
     [onLog],
   );
 
   return (
-    <SheetSection highlighted accentColor="purple">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2.5">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-3.5 w-3.5 text-purple-500" />
-          <span className="text-sm font-semibold text-foreground">
-            Application log
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 h-5">
-          {status === "unsaved" && (
-            <span className="text-[11px] font-mono text-amber-600">
-              ● Unsaved
-            </span>
-          )}
-          {status === "saved" && (
-            <span className="text-[11px] font-mono text-emerald-600 flex items-center gap-1">
-              <CheckCircle2 className="h-3 w-3" />
-              Saved
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Real TipTap editor */}
+    <div>
       <RichTextEditor
         initialContent={initialValue}
         placeholder="Log a note, update, or next step — press ⌘Enter or click Send to post it to the activity timeline…"
@@ -430,42 +391,44 @@ function NotesEditor({ initialValue, onSave, onLog }: NotesEditorProps) {
         showWordCount={true}
         className="border-purple-100 focus-within:ring-purple-300/40"
       />
-    </SheetSection>
+    </div>
   );
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-interface JobDetailSheetProps {
-  job: Job | null;
+interface KanbanCardDetailSheetProps {
+  application: Application;
   open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onJobUpdate?: (job: Job) => void;
+  onClose: VoidFunction;
+  onApplicationUpdate?: (application: Application) => void;
 }
 
-export default function JobDetailSheet({
-  job,
+export default function KanbanCardDetailSheet({
+  application,
   open,
-  onOpenChange,
-  onJobUpdate,
-}: JobDetailSheetProps) {
+  onClose,
+  onApplicationUpdate,
+}: KanbanCardDetailSheetProps) {
   const [activeTab, setActiveTab] = useState("overview");
+  const [applying, setApplying] = useState(false);
+  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
 
-  // Reset to overview tab whenever a different job is opened
+  // Reset to overview tab whenever a different item is opened
   useEffect(() => {
     if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab("overview");
     }
-  }, [job?.id, open]);
+  }, [application?.id, open]);
 
   const handleNoteSave = useCallback(
     (html: string) => {
-      if (job && onJobUpdate) {
-        onJobUpdate({ ...job, notes: html });
+      console.log({ html });
+      if (application && onApplicationUpdate) {
+        onApplicationUpdate({ ...application });
       }
     },
-    [job, onJobUpdate],
+    [application, onApplicationUpdate],
   );
 
   /**
@@ -474,85 +437,85 @@ export default function JobDetailSheet({
    * the job's activityLog, and switches to the Activity tab so the user can
    * immediately see their new entry in the timeline.
    */
-  const handleLog = useCallback(
-    (html: string) => {
-      if (!job) return;
+  const handleLog = useCallback((html: string) => {
+    // Strip tags to get a plain-text description for the timeline entry
+    const plainText = html
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&[a-z]+;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
-      // Strip tags to get a plain-text description for the timeline entry
-      const plainText = html
-        .replace(/<[^>]*>/g, " ")
-        .replace(/&[a-z]+;/gi, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+    if (!plainText) return;
 
-      if (!plainText) return;
+    const entry = {
+      id: `act-log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: "note_added" as const,
+      title: "Log entry added",
+      description:
+        plainText.length > 400 ? `${plainText.slice(0, 397)}…` : plainText,
+      timestamp: new Date().toISOString(),
+    };
 
-      const entry = {
-        id: `act-log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        type: "note_added" as const,
-        title: "Log entry added",
-        description:
-          plainText.length > 400 ? `${plainText.slice(0, 397)}…` : plainText,
-        timestamp: new Date().toISOString(),
-      };
+    setActivityLog((logs) => [...logs, entry]);
 
-      onJobUpdate?.({
-        ...job,
-        activityLog: [...job.activityLog, entry],
-      });
+    // Navigate to Activity tab so the user sees the newly posted entry
+    setActiveTab("activity");
+  }, []);
 
-      // Navigate to Activity tab so the user sees the newly posted entry
-      setActiveTab("activity");
-    },
-    [job, onJobUpdate],
-  );
+  const applyNow = useCallback(async () => {
+    setApplying(true);
 
-  if (!job) return null;
+    try {
+      await ApplicationService.apply(application.id);
+    } finally {
+      setApplying(false);
+    }
+  }, [application.id]);
 
-  const scoreBg = getMatchScoreBg(job.matchScore);
-  const initials = getCompanyInitials(job.company);
+  if (!application) return null;
+
+  const scoreBg = getMatchScoreBg(application.match_score);
+  const initials = getCompanyInitials(application.job.company);
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      {/* ── Sheet Header ──────────────────────────────────────────────── */}
+    <Sheet open={open} onClose={onClose}>
       <SheetHeader>
         <div className="flex items-center gap-3 min-w-0">
-          {/* Company avatar */}
           <Avatar className="h-9 w-9 rounded-xl shrink-0">
-            <AvatarImage src={job.companyLogoUrl} alt={job.company} />
+            <AvatarImage alt={application.job.company} />
             <AvatarFallback className="rounded-xl text-xs font-bold bg-slate-100 text-slate-600">
               {initials}
             </AvatarFallback>
           </Avatar>
 
           <div className="min-w-0">
-            <SheetTitle className="truncate">{job.title}</SheetTitle>
-            <SheetDescription>{job.company}</SheetDescription>
+            <SheetTitle className="truncate">
+              {application.job.title}
+            </SheetTitle>
+            <SheetDescription>{application.job.company}</SheetDescription>
           </div>
         </div>
 
         <div className="flex items-center gap-2 ml-auto shrink-0">
-          {/* Status badge */}
           <span
             className={cn(
               "text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full border",
-              statusColors[job.status],
+              statusColors[application.status],
             )}
           >
-            {statusLabels[job.status]}
+            {statusLabels[application.status]}
           </span>
 
-          {/* Match score */}
           <span
             className={cn(
               "text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full border",
               scoreBg,
             )}
           >
-            {job.matchScore}% match
+            {application.match_score}% match
           </span>
 
-          <SheetClose onClose={() => onOpenChange(false)} />
+          <SheetClose onClose={onClose} />
         </div>
       </SheetHeader>
 
@@ -563,53 +526,60 @@ export default function JobDetailSheet({
           {/* Location */}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <MapPin className="h-3.5 w-3.5 shrink-0" />
-            <span>{job.location}</span>
+            <span>{application.job.location}</span>
           </div>
 
           {/* Modality */}
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Globe className="h-3.5 w-3.5 shrink-0" />
-            <span>{modalityLabel[job.jobType] ?? job.jobType}</span>
-          </div>
+          {application.job.modalities?.map((modality, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            >
+              <Globe className="h-3.5 w-3.5 shrink-0" />
+              <span>{modalityLabel[modality] ?? modality}</span>
+            </div>
+          ))}
 
           {/* Salary */}
-          {job.salary && (
+          {application.job.minimum_salary && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <DollarSign className="h-3.5 w-3.5 shrink-0" />
-              <span className="font-mono">{job.salary}</span>
+              <span className="font-mono">
+                {application.job.minimum_salary}
+              </span>
             </div>
           )}
 
           {/* Source */}
-          {job.sourceDirectory && (
+          {application.job.source && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Building2 className="h-3.5 w-3.5 shrink-0" />
-              <span>{job.sourceDirectory}</span>
+              <span>{application.job.source}</span>
             </div>
           )}
 
           {/* Date found */}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Calendar className="h-3.5 w-3.5 shrink-0" />
-            <span className="font-mono">Found {formatDate(job.dateFound)}</span>
+            <span className="font-mono">Found {application.job.posted_at}</span>
           </div>
 
           {/* Date applied */}
-          {job.dateApplied && (
+          {application.applied_at && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Send className="h-3.5 w-3.5 shrink-0" />
               <span className="font-mono">
-                Applied {formatDate(job.dateApplied)}
+                Applied {formatDate(application.applied_at)}
               </span>
             </div>
           )}
         </div>
 
         {/* Tags */}
-        {job.tags && job.tags.length > 0 && (
+        {/*{item.tags && item.tags.length > 0 && (
           <div className="px-6 py-3 flex items-center gap-1.5 flex-wrap border-b border-border">
             <Tag className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            {job.tags.map((tag) => (
+            {item.tags.map((tag) => (
               <span
                 key={tag}
                 className="text-[11px] font-mono bg-slate-50 border border-slate-100 text-slate-600 px-2 py-0.5 rounded-md"
@@ -618,7 +588,7 @@ export default function JobDetailSheet({
               </span>
             ))}
           </div>
-        )}
+        )}*/}
 
         {/* Tabs */}
         <Tabs
@@ -634,17 +604,6 @@ export default function JobDetailSheet({
               <TabsTrigger value="resume" className="text-xs px-3 h-6">
                 Resume
               </TabsTrigger>
-              <TabsTrigger
-                value="activity"
-                className="text-xs px-3 h-6 relative"
-              >
-                Activity
-                {job.activityLog.length > 0 && (
-                  <span className="ml-1.5 text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0 rounded-full">
-                    {job.activityLog.length}
-                  </span>
-                )}
-              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -654,25 +613,25 @@ export default function JobDetailSheet({
             className="flex-1 overflow-y-auto px-6 py-5 space-y-6 mt-0"
           >
             {/* Description */}
-            {job.description && (
+            {application.job.description && (
               <section>
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                   About the role
                 </h4>
                 <p className="text-sm text-foreground leading-relaxed">
-                  {job.description}
+                  {application.job.description}
                 </p>
               </section>
             )}
 
             {/* Requirements */}
-            {job.requirements && job.requirements.length > 0 && (
+            {/*{item.requirements && item.requirements.length > 0 && (
               <section>
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                   Requirements
                 </h4>
                 <ul className="space-y-1.5">
-                  {job.requirements.map((req, i) => (
+                  {item.requirements.map((req, i) => (
                     <li
                       key={i}
                       className="flex items-start gap-2 text-sm text-foreground"
@@ -683,40 +642,64 @@ export default function JobDetailSheet({
                   ))}
                 </ul>
               </section>
-            )}
+            )}*/}
 
             {/* Source link */}
-            {job.sourceUrl && (
+            {application.job.external_url && (
               <section>
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                   Original posting
                 </h4>
                 <a
-                  href={job.sourceUrl}
+                  href={application.job.external_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors font-medium"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
-                  View on {job.sourceDirectory ?? "job board"}
+                  View on {_.capitalize(application.job.source)}
                 </a>
+              </section>
+            )}
+
+            {!application.applied_at && (
+              <section>
+                <Button
+                  size="lg"
+                  onClick={applyNow}
+                  disabled={applying}
+                  className="gap-2 min-w-40"
+                >
+                  <Rocket className="h-4 w-4" />
+                  Apply now
+                </Button>
               </section>
             )}
 
             <Separator />
 
-            {/* Notes editor — highlighted section */}
-            <section>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-foreground">
+                  Activities
+                </h4>
+                <span className="text-[11px] font-mono text-muted-foreground">
+                  {activityLog.length}{" "}
+                  {activityLog.length === 1 ? "event" : "events"}
+                </span>
+              </div>
+
+              <ActivityTimeline entries={activityLog} />
+
               <NotesEditor
-                key={job.id}
-                initialValue={job.notes ?? ""}
+                key={`activity-${application.id}`}
+                initialValue={""}
                 onSave={handleNoteSave}
                 onLog={handleLog}
               />
-            </section>
+            </div>
           </TabsContent>
 
-          {/* ── Resume Tab ────────────────────────────────────────────── */}
           <TabsContent
             value="resume"
             className="flex-1 overflow-y-auto px-6 py-5 mt-0"
@@ -732,47 +715,14 @@ export default function JobDetailSheet({
                     knowledge base.
                   </p>
                 </div>
-                {job.dateApplied && (
+                {application.applied_at && (
                   <span className="text-[11px] font-mono text-muted-foreground">
-                    Generated {formatDateTime(job.dateApplied)}
+                    Generated {formatDateTime(application.applied_at)}
                   </span>
                 )}
               </div>
 
-              <ResumePreview job={job} />
-            </div>
-          </TabsContent>
-
-          {/* ── Activity Tab ──────────────────────────────────────────── */}
-          <TabsContent
-            value="activity"
-            className="flex-1 overflow-y-auto px-6 py-5 mt-0"
-          >
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-foreground">
-                  Timeline
-                </h4>
-                <span className="text-[11px] font-mono text-muted-foreground">
-                  {job.activityLog.length}{" "}
-                  {job.activityLog.length === 1 ? "event" : "events"}
-                </span>
-              </div>
-
-              <ActivityTimeline entries={job.activityLog} />
-
-              {/* Inline notes at bottom of activity */}
-              {job.activityLog.length > 0 && (
-                <>
-                  <Separator />
-                  <NotesEditor
-                    key={`activity-${job.id}`}
-                    initialValue={job.notes ?? ""}
-                    onSave={handleNoteSave}
-                    onLog={handleLog}
-                  />
-                </>
-              )}
+              <ResumePreview resumeUrl={application.resume_url} />
             </div>
           </TabsContent>
         </Tabs>

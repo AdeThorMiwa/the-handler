@@ -9,10 +9,7 @@ interface KnowledgeBase {
 }
 
 class KnowledgeBaseService extends BaseService {
-  public async addKnowledgeBase(
-    label: string,
-    content: string,
-  ): Promise<KnowledgeBase> {
+  public async add(label: string, content: string): Promise<KnowledgeBase> {
     const { data } = await this.client.post<KnowledgeBase>(
       "/knowledge-base/add",
       { label, content },
@@ -21,10 +18,7 @@ class KnowledgeBaseService extends BaseService {
     return data;
   }
 
-  public async uploadKnowledgeBase(
-    label: string,
-    file: File,
-  ): Promise<KnowledgeBase> {
+  public async upload(label: string, file: File): Promise<KnowledgeBase> {
     const formData = new FormData();
     formData.append("label", label);
     formData.append("content", file);
@@ -32,6 +26,24 @@ class KnowledgeBaseService extends BaseService {
     const { data } = await this.client.post<KnowledgeBase>(
       "/knowledge-base/upload",
       formData,
+    );
+
+    return data;
+  }
+
+  public async get() {
+    const { data } = await this.client.get<KnowledgeBase[]>("/knowledge-base");
+
+    return data;
+  }
+
+  public async delete(id: string) {
+    await this.client.delete(`/knowledge-base/${id}`);
+  }
+
+  public async getRoleList() {
+    const { data } = await this.client.get<string[]>(
+      "/knowledge-base/get-roles",
     );
 
     return data;

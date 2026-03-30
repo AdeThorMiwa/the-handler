@@ -5,11 +5,11 @@ import { cn } from "@/lib/utils";
 
 interface SheetProps {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onClose: VoidFunction;
   children: React.ReactNode;
 }
 
-function Sheet({ open, onOpenChange, children }: SheetProps) {
+function Sheet({ open, onClose, children }: SheetProps) {
   // Lock body scroll when open
   React.useEffect(() => {
     if (open) {
@@ -25,11 +25,11 @@ function Sheet({ open, onOpenChange, children }: SheetProps) {
   // Close on Escape key
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && open) onOpenChange(false);
+      if (e.key === "Escape" && open) onClose();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onOpenChange]);
+  }, [open, onClose]);
 
   return (
     <AnimatePresence>
@@ -43,7 +43,7 @@ function Sheet({ open, onOpenChange, children }: SheetProps) {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: "easeInOut" }}
             className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px]"
-            onClick={() => onOpenChange(false)}
+            onClick={onClose}
             aria-hidden="true"
           />
 

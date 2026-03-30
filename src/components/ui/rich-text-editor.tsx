@@ -1,7 +1,6 @@
 import * as React from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import UnderlineExtension from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import CharacterCount from "@tiptap/extension-character-count";
 import { Bold, Italic, Underline, List, ListOrdered } from "lucide-react";
@@ -119,7 +118,6 @@ export function RichTextEditor({
         // Disable the code-block shortcut so it doesn't interfere
         codeBlock: false,
       }),
-      UnderlineExtension,
       Placeholder.configure({
         placeholder,
         emptyEditorClass: "is-editor-empty",

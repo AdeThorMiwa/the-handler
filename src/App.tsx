@@ -17,6 +17,7 @@ import DashboardPage, {
 } from "@/pages/DashboardPage";
 import KanbanBoard from "@/components/dashboard/KanbanBoard";
 import { AuthProvider } from "./contexts/auth/provider";
+import { UserProvider } from "./contexts/user/provider";
 
 // ── Top-level page transition ─────────────────────────────────────────────────
 
@@ -117,10 +118,12 @@ export default function App() {
       <Providers>
         {/* App-level auth state (persisted in localStorage) */}
         <AuthProvider>
-          {/* Radix Tooltip singleton */}
-          <TooltipProvider delayDuration={400}>
-            <AppRoutes />
-          </TooltipProvider>
+          <UserProvider>
+            {/* Radix Tooltip singleton */}
+            <TooltipProvider delayDuration={400}>
+              <AppRoutes />
+            </TooltipProvider>
+          </UserProvider>
         </AuthProvider>
       </Providers>
     </BrowserRouter>

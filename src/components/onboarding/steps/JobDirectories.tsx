@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2,
@@ -10,7 +10,10 @@ import {
   Unlink,
   X,
   Zap,
+  CircleX,
 } from "lucide-react";
+import JobDirectoryService from "@/services/directory";
+import UserPreferenceService from "@/services/preference";
 
 // Inline LinkedIn logo since lucide-react doesn't export it
 function LinkedinIcon({ className }: { className?: string }) {
@@ -28,34 +31,52 @@ function LinkedinIcon({ className }: { className?: string }) {
 import Button from "@/components/ui/button";
 import Badge from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import type { JobDirectoryMetadata } from "@/services/directory";
+import { useUser } from "@/contexts/user/useUser";
 
-interface JobDirectoriesProps {
-  connectedDirectories: string[];
-  onConnectionChange: (directories: string[]) => void;
-}
-
-// ── LinkedIn OAuth Popup Simulation ──────────────────────────────────────────
+type JobDirectoryItem = JobDirectoryMetadata &
+  ReturnType<typeof getDirectoryConfig>;
 
 interface OAuthPopupProps {
-  onSuccess: () => void;
+  directory: JobDirectoryItem;
+  connectedDirectories: string[];
+  onSuccess: (newDirectoryList: string[]) => void;
   onCancel: () => void;
 }
 
-function LinkedInOAuthPopup({ onSuccess, onCancel }: OAuthPopupProps) {
-  const [step, setStep] = useState<"consent" | "connecting" | "success">(
-    "consent",
-  );
+function OAuthPopup({
+  directory,
+  onSuccess,
+  onCancel,
+  connectedDirectories,
+}: OAuthPopupProps) {
+  const [step, setStep] = useState<
+    "consent" | "connecting" | "success" | "failed"
+  >("consent");
+  const [failureReason, setFailureReason] = useState<string>();
 
-  const handleAuthorise = useCallback(() => {
+  const handleAuthorise = useCallback(async () => {
     setStep("connecting");
-    // Simulate OAuth flow delay
+    const res = await JobDirectoryService.connect(directory.id);
+
+    const newDirectoryList = [...connectedDirectories, directory.id];
+    if (res.success) {
+      await UserPreferenceService.update({
+        directories: newDirectoryList,
+      });
+    }
+
+    if (!res.success) {
+      setStep("failed");
+      setFailureReason(res.failureReason);
+      return;
+    }
+
+    setStep("success");
     setTimeout(() => {
-      setStep("success");
-      setTimeout(() => {
-        onSuccess();
-      }, 900);
-    }, 1600);
-  }, [onSuccess]);
+      onSuccess(newDirectoryList);
+    }, 1000);
+  }, [onSuccess, directory.id, connectedDirectories]);
 
   return (
     <motion.div
@@ -79,12 +100,14 @@ function LinkedInOAuthPopup({ onSuccess, onCancel }: OAuthPopupProps) {
         {/* Popup header — mimics LinkedIn branding */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#0A66C2] flex items-center justify-center">
-              <LinkedinIcon className="h-4 w-4 text-white" />
+            <div
+              className={`w-8 h-8 rounded-lg flex items-center justify-center ${directory.accentColor}`}
+            >
+              {directory.logo}
             </div>
             <div>
               <p className="text-sm font-semibold text-slate-900 leading-none">
-                LinkedIn
+                {directory.name}
               </p>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 Sign in to authorise
@@ -160,8 +183,8 @@ function LinkedInOAuthPopup({ onSuccess, onCancel }: OAuthPopupProps) {
                 <div className="flex items-center gap-1.5 mb-5 p-2.5 rounded-lg bg-slate-50 border border-slate-100">
                   <Lock className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                   <p className="text-[11px] text-slate-500 leading-snug">
-                    You can revoke access at any time from your LinkedIn
-                    security settings.
+                    You can revoke access at any time from your security
+                    settings.
                   </p>
                 </div>
 
@@ -206,7 +229,7 @@ function LinkedInOAuthPopup({ onSuccess, onCancel }: OAuthPopupProps) {
                   <RefreshCw className="h-8 w-8 text-[#0A66C2]" />
                 </motion.div>
                 <p className="text-sm font-medium text-slate-800">
-                  Connecting to LinkedIn…
+                  Connecting to {directory.name}…
                 </p>
                 <p className="text-xs text-slate-500 mt-1">
                   Establishing a secure connection
@@ -240,11 +263,53 @@ function LinkedInOAuthPopup({ onSuccess, onCancel }: OAuthPopupProps) {
                   <CheckCircle2 className="h-7 w-7 text-emerald-500" />
                 </motion.div>
                 <p className="text-sm font-semibold text-slate-800">
-                  LinkedIn connected!
+                  {directory.name} connected!
                 </p>
                 <p className="text-xs text-slate-500 mt-1">
                   Career OS can now search and apply on your behalf.
                 </p>
+              </motion.div>
+            )}
+
+            {step === "failed" && (
+              <motion.div
+                key="failed"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{
+                  type: "spring",
+                  damping: 20,
+                  stiffness: 300,
+                }}
+                className="flex flex-col items-center py-6 text-center"
+              >
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{
+                    type: "spring",
+                    damping: 15,
+                    stiffness: 300,
+                    delay: 0.1,
+                  }}
+                  className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mb-4"
+                >
+                  <CircleX className="h-7 w-7 text-red-500" />
+                </motion.div>
+                <p className="text-sm font-semibold text-slate-800">
+                  {directory.name} connection failed!
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  {failureReason ?? "Something went wrong"}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 border-slate-200 mt-2.5 py-1 px-2"
+                  onClick={onCancel}
+                >
+                  Close
+                </Button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -368,69 +433,71 @@ function DirectoryCard({
   );
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+const getDirectoryConfig = (id: string) => {
+  if (id === "linkedin")
+    return {
+      accentColor: "bg-[#0A66C2]/10",
+      logo: <LinkedinIcon className="h-5 w-5 text-[#0A66C2]" />,
+    };
 
-const directories = [
-  {
-    id: "linkedin",
-    name: "LinkedIn",
-    description:
-      "Search and apply to thousands of roles via LinkedIn Easy Apply. Supports job alerts, profile matching, and direct applications.",
+  if (id === "indeed")
+    return {
+      accentColor: "bg-[#2164F3]/10",
+      logo: (
+        <span className="text-base font-black text-[#2164F3] tracking-tighter leading-none">
+          in
+        </span>
+      ),
+    };
+
+  return {
     accentColor: "bg-[#0A66C2]/10",
-    isComingSoon: false,
-    logo: <LinkedinIcon className="h-5 w-5 text-[#0A66C2]" />,
-  },
-  {
-    id: "indeed",
-    name: "Indeed",
-    description:
-      "The world's largest job board. Automated applications, salary insights, and company reviews — coming soon.",
-    accentColor: "bg-[#2164F3]/10",
-    isComingSoon: true,
-    logo: (
-      <span className="text-base font-black text-[#2164F3] tracking-tighter leading-none">
-        in
-      </span>
-    ),
-  },
-  {
-    id: "wellfound",
-    name: "Wellfound",
-    description:
-      "The go-to platform for startup roles. Equity-first listings, direct founder outreach, and startup-specific job matching — coming soon.",
-    accentColor: "bg-slate-100",
-    isComingSoon: true,
-    logo: (
-      <span className="text-xs font-black text-slate-600 tracking-tight leading-none uppercase">
-        WF
-      </span>
-    ),
-  },
-];
+    logo: <></>,
+  };
+};
 
-export default function JobDirectories({
-  connectedDirectories,
-  onConnectionChange,
-}: JobDirectoriesProps) {
+export default function JobDirectories() {
+  const {
+    directories: connectedDirectories,
+    setDirectories: setConnectedDirectories,
+  } = useUser();
+  const [directories, setDirectories] = useState<JobDirectoryItem[]>([]);
   const [showOAuthPopup, setShowOAuthPopup] = useState(false);
   const [pendingDirectoryId, setPendingDirectoryId] = useState<string | null>(
     null,
   );
+  const selectedDirectory = useMemo(
+    () => directories.find((d) => d.id === pendingDirectoryId),
+    [directories, pendingDirectoryId],
+  );
 
-  const handleConnect = useCallback((id: string) => {
-    if (id === "linkedin") {
-      setPendingDirectoryId(id);
-      setShowOAuthPopup(true);
-    }
+  useEffect(() => {
+    JobDirectoryService.getDirectories().then((directories) =>
+      setDirectories(
+        directories.map((directory) => ({
+          id: directory.id,
+          name: directory.name,
+          description: directory.description,
+          active: directory.active,
+          ...getDirectoryConfig(directory.id),
+        })),
+      ),
+    );
   }, []);
 
-  const handleOAuthSuccess = useCallback(() => {
-    if (pendingDirectoryId) {
-      onConnectionChange([...connectedDirectories, pendingDirectoryId]);
-    }
-    setShowOAuthPopup(false);
-    setPendingDirectoryId(null);
-  }, [pendingDirectoryId, connectedDirectories, onConnectionChange]);
+  const handleConnect = useCallback((id: string) => {
+    setPendingDirectoryId(id);
+    setShowOAuthPopup(true);
+  }, []);
+
+  const handleOAuthSuccess = useCallback(
+    (newDirectoryList: string[]) => {
+      setConnectedDirectories(newDirectoryList);
+      setShowOAuthPopup(false);
+      setPendingDirectoryId(null);
+    },
+    [setConnectedDirectories],
+  );
 
   const handleOAuthCancel = useCallback(() => {
     setShowOAuthPopup(false);
@@ -438,10 +505,12 @@ export default function JobDirectories({
   }, []);
 
   const handleDisconnect = useCallback(
-    (id: string) => {
-      onConnectionChange(connectedDirectories.filter((d) => d !== id));
+    async (id: string) => {
+      const directories = connectedDirectories.filter((d) => d !== id);
+      await UserPreferenceService.update({ directories });
+      setConnectedDirectories(directories);
     },
-    [connectedDirectories, onConnectionChange],
+    [connectedDirectories, setConnectedDirectories],
   );
 
   const connectedCount = connectedDirectories.length;
@@ -475,7 +544,7 @@ export default function JobDirectories({
             logo={dir.logo}
             accentColor={dir.accentColor}
             isConnected={connectedDirectories.includes(dir.id)}
-            isComingSoon={dir.isComingSoon}
+            isComingSoon={!dir.active}
             onConnect={handleConnect}
             onDisconnect={handleDisconnect}
           />
@@ -508,8 +577,10 @@ export default function JobDirectories({
 
       {/* OAuth Popup */}
       <AnimatePresence>
-        {showOAuthPopup && (
-          <LinkedInOAuthPopup
+        {showOAuthPopup && selectedDirectory && (
+          <OAuthPopup
+            directory={selectedDirectory}
+            connectedDirectories={connectedDirectories}
             onSuccess={handleOAuthSuccess}
             onCancel={handleOAuthCancel}
           />

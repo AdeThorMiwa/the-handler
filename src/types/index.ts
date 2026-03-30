@@ -2,9 +2,8 @@
 
 export interface User {
   id: string;
-  name: string;
+  username: string;
   email: string;
-  avatarUrl?: string;
   onboardingCompleted: boolean;
 }
 
@@ -63,29 +62,6 @@ export type KanbanStatus =
   | "declined"
   | "offer";
 
-export interface Job {
-  id: string;
-  title: string;
-  company: string;
-  companyLogoUrl?: string;
-  location: string;
-  salary?: string;
-  jobType: WorkModality;
-  matchScore: number; // 0-100
-  status: KanbanStatus;
-  description?: string;
-  requirements?: string[];
-  sourceUrl?: string;
-  sourceDirectory?: string;
-  dateFound: string;
-  dateApplied?: string;
-  dateUpdated: string;
-  tailoredResumeUrl?: string;
-  notes?: string;
-  activityLog: ActivityEntry[];
-  tags?: string[];
-}
-
 // ── Activity Timeline ─────────────────────────────────────────────────────────
 
 export type ActivityType =
@@ -105,16 +81,6 @@ export interface ActivityEntry {
   description?: string;
   timestamp: string;
   metadata?: Record<string, string>;
-}
-
-// ── Kanban Column ─────────────────────────────────────────────────────────────
-
-export interface KanbanColumn {
-  id: KanbanStatus;
-  title: string;
-  color: string;
-  accentColor: string;
-  jobs: Job[];
 }
 
 // ── Onboarding ────────────────────────────────────────────────────────────────

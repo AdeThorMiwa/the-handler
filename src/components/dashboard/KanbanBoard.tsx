@@ -1,29 +1,21 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
-import {
-  Briefcase,
-  TrendingUp,
-  Search,
-  SlidersHorizontal,
-  LayoutGrid,
-  RefreshCw,
-} from "lucide-react";
-import KanbanColumn from "@/components/dashboard/KanbanColumn";
-import JobDetailSheet from "@/components/dashboard/JobDetailSheet";
-import Button from "@/components/ui/button";
+import { Briefcase, TrendingUp, Search, RefreshCw } from "lucide-react";
+import KanbanCardDetailSheet from "@/components/dashboard/KanbanCardDetailSheet";
 import { Input } from "@/components/ui/input";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { mockJobs, kanbanColumnMeta } from "@/data/mock";
-import type { Job, KanbanStatus } from "@/types";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import { useStats } from "@/hooks/useStats";
+import SavedJobsKanbanColumn from "./SavedJobs";
+import ApplicationKanbanColumns from "./Applications";
+import { useApplications } from "@/hooks/useApplications";
+import type { Application } from "@/services/application";
+import Button from "../ui/button";
+import ApplicationService from "@/services/application";
 
 interface KanbanBoardProps {
   className?: string;
 }
-
-// ── Stat Card ─────────────────────────────────────────────────────────────────
 
 interface StatCardProps {
   label: string;
@@ -62,117 +54,98 @@ function StatCard({ label, value, sub, color, bg, icon }: StatCardProps) {
   );
 }
 
-// ── KanbanBoard ───────────────────────────────────────────────────────────────
-
 export default function KanbanBoard({ className }: KanbanBoardProps) {
-  const [jobs, setJobs] = useState<Job[]>(mockJobs);
-  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const { applications, saved } = useApplications();
+  const [selectedApplication, setSelectedApplication] = useState<Application>();
   const [searchQuery, setSearchQuery] = useState("");
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [scanning, setScanning] = useState(false);
 
-  // ── Derived data ──────────────────────────────────────────────────────────
-
-  const filteredJobs = searchQuery.trim()
-    ? jobs.filter(
-        (job) =>
-          job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          job.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          job.tags?.some((t) =>
-            t.toLowerCase().includes(searchQuery.toLowerCase()),
-          ),
-      )
-    : jobs;
-
-  const jobsByStatus = kanbanColumnMeta.reduce<Record<KanbanStatus, Job[]>>(
-    (acc, col) => {
-      acc[col.id] = filteredJobs.filter((j) => j.status === col.id);
-      return acc;
-    },
-    {
-      saved: [],
-      applied: [],
-      interview: [],
-      declined: [],
-      offer: [],
-    },
+  const filteredSavedApplications = useMemo(
+    () =>
+      searchQuery.trim()
+        ? saved.filter(
+            (application) =>
+              application.job.title
+                .toLowerCase()
+                .includes(searchQuery.toLowerCase()) ||
+              application.job.company
+                .toLowerCase()
+                .includes(searchQuery.toLowerCase()),
+          )
+        : saved,
+    [searchQuery, saved],
   );
 
-  // Stats
-  const totalJobs = jobs.length;
-  const appliedCount = jobs.filter((j) =>
-    ["applied", "interview", "offer"].includes(j.status),
-  ).length;
-  const interviewCount = jobs.filter((j) => j.status === "interview").length;
-  const offerCount = jobs.filter((j) => j.status === "offer").length;
-  const avgMatchScore =
-    jobs.length > 0
-      ? Math.round(jobs.reduce((sum, j) => sum + j.matchScore, 0) / jobs.length)
-      : 0;
+  const filteredApplications = useMemo(
+    () =>
+      searchQuery.trim()
+        ? applications.filter(
+            (application) =>
+              application.job.title
+                .toLowerCase()
+                .includes(searchQuery.toLowerCase()) ||
+              application.job.company
+                .toLowerCase()
+                .includes(searchQuery.toLowerCase()),
+          )
+        : applications,
+    [searchQuery, applications],
+  );
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
-
-  const handleJobClick = useCallback((job: Job) => {
-    setSelectedJob(job);
-    setIsSheetOpen(true);
+  const onApplicationUpdate = useCallback((application: Application) => {
+    console.log({ application });
   }, []);
 
-  const handleSheetOpenChange = useCallback((open: boolean) => {
-    setIsSheetOpen(open);
-    if (!open) {
-      // Slight delay before clearing so exit animation completes
-      setTimeout(() => setSelectedJob(null), 300);
+  const {
+    totalApplications,
+    totalSaved,
+    autoApplySuccessRate,
+    averageResponseTimeInDays,
+    declined,
+  } = useStats();
+
+  const totalTracked = totalApplications + totalSaved;
+  const totalInProgress = totalApplications - declined;
+
+  const onApplicationClick = useCallback((application: Application) => {
+    setSelectedApplication(application);
+  }, []);
+
+  const onScan = useCallback(async () => {
+    setScanning(true);
+    try {
+      await ApplicationService.scan();
+    } finally {
+      setScanning(false);
     }
   }, []);
 
-  const handleRefresh = useCallback(() => {
-    setIsRefreshing(true);
-    // Simulate a scan
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 1800);
-  }, []);
-
-  const handleJobUpdate = useCallback((updatedJob: Job) => {
-    setJobs((prev) =>
-      prev.map((j) => (j.id === updatedJob.id ? updatedJob : j)),
-    );
-  }, []);
-
-  // Keep selectedJob in sync with jobs state
-  const currentSelectedJob = selectedJob
-    ? (jobs.find((j) => j.id === selectedJob.id) ?? selectedJob)
-    : null;
-
   return (
     <div className={cn("flex flex-col h-full overflow-hidden", className)}>
-      {/* ── Top Bar ───────────────────────────────────────────────────── */}
       <div className="shrink-0 px-6 pt-6 pb-4 space-y-4">
-        {/* Page header */}
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-foreground">
               Applications
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {totalJobs} total ·{" "}
-              <span className="font-mono">{appliedCount}</span> in progress
+              {totalTracked} total ·{" "}
+              <span className="font-mono">{totalInProgress}</span> in progress
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Refresh / scan button */}
             <Button
               variant="outline"
               size="sm"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
+              onClick={onScan}
+              disabled={scanning}
               className="gap-1.5 border-slate-200"
             >
               <motion.span
-                animate={isRefreshing ? { rotate: 360 } : { rotate: 0 }}
+                animate={scanning ? { rotate: 360 } : { rotate: 0 }}
                 transition={
-                  isRefreshing
+                  scanning
                     ? { repeat: Infinity, duration: 1, ease: "linear" }
                     : { duration: 0 }
                 }
@@ -180,10 +153,9 @@ export default function KanbanBoard({ className }: KanbanBoardProps) {
               >
                 <RefreshCw className="h-3.5 w-3.5" />
               </motion.span>
-              {isRefreshing ? "Scanning…" : "Scan now"}
+              {scanning ? "Scanning…" : "Scan now"}
             </Button>
-
-            <Button
+            {/*<Button
               variant="outline"
               size="icon"
               className="border-slate-200"
@@ -199,68 +171,29 @@ export default function KanbanBoard({ className }: KanbanBoardProps) {
               aria-label="View options"
             >
               <LayoutGrid className="h-4 w-4" />
-            </Button>
+            </Button>*/}
           </div>
         </div>
 
-        {/* Stats row */}
         <ScrollArea>
           <div className="flex items-center gap-3 pb-1">
             <StatCard
               label="Total tracked"
-              value={totalJobs}
+              value={totalTracked}
               color="text-slate-600"
               bg="bg-slate-100"
               icon={<Briefcase className="h-4 w-4" />}
             />
             <StatCard
-              label="In progress"
-              value={appliedCount}
-              sub="applied + interview"
+              label="Avg. response time"
+              value={`${averageResponseTimeInDays} days`}
               color="text-blue-600"
               bg="bg-blue-50"
               icon={<TrendingUp className="h-4 w-4" />}
             />
             <StatCard
-              label="Interviews"
-              value={interviewCount}
-              color="text-amber-600"
-              bg="bg-amber-50"
-              icon={
-                <svg
-                  className="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-              }
-            />
-            <StatCard
-              label="Offers"
-              value={offerCount}
-              color="text-emerald-600"
-              bg="bg-emerald-50"
-              icon={
-                <svg
-                  className="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              }
-            />
-            <StatCard
-              label="Avg. match"
-              value={`${avgMatchScore}%`}
+              label="Auto apply success rate"
+              value={`${autoApplySuccessRate}%`}
               color="text-purple-600"
               bg="bg-purple-50"
               icon={
@@ -280,7 +213,6 @@ export default function KanbanBoard({ className }: KanbanBoardProps) {
           <ScrollBar orientation="horizontal" />
         </ScrollArea>
 
-        {/* Search bar */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
@@ -301,7 +233,6 @@ export default function KanbanBoard({ className }: KanbanBoardProps) {
           )}
         </div>
 
-        {/* Active search indicator */}
         {searchQuery && (
           <motion.p
             initial={{ opacity: 0, y: -4 }}
@@ -310,49 +241,39 @@ export default function KanbanBoard({ className }: KanbanBoardProps) {
           >
             Showing{" "}
             <span className="font-semibold text-foreground font-mono">
-              {filteredJobs.length}
+              {filteredSavedApplications.length}
             </span>{" "}
-            result{filteredJobs.length !== 1 ? "s" : ""} for &ldquo;
+            result{filteredSavedApplications.length !== 1 ? "s" : ""} for
+            &ldquo;
             {searchQuery}&rdquo;
           </motion.p>
         )}
       </div>
 
-      {/* ── Kanban Board ──────────────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden">
         <ScrollArea className="h-full w-full">
           <div className="flex items-start gap-5 px-6 pb-6 h-full min-h-150">
-            {kanbanColumnMeta.map((col, index) => (
-              <motion.div
-                key={col.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  duration: 0.35,
-                  delay: index * 0.06,
-                  ease: [0.22, 1, 0.36, 1],
-                }}
-                className="h-full"
-              >
-                <KanbanColumn
-                  column={col}
-                  jobs={jobsByStatus[col.id]}
-                  onJobClick={handleJobClick}
-                />
-              </motion.div>
-            ))}
+            <SavedJobsKanbanColumn
+              applications={filteredSavedApplications}
+              onApplicationClick={onApplicationClick}
+            />
+            <ApplicationKanbanColumns
+              applications={filteredApplications}
+              onApplicationClick={onApplicationClick}
+            />
           </div>
           <ScrollBar orientation="horizontal" />
         </ScrollArea>
       </div>
 
-      {/* ── Job Detail Sheet ──────────────────────────────────────────── */}
-      <JobDetailSheet
-        job={currentSelectedJob}
-        open={isSheetOpen}
-        onOpenChange={handleSheetOpenChange}
-        onJobUpdate={handleJobUpdate}
-      />
+      {selectedApplication && (
+        <KanbanCardDetailSheet
+          application={selectedApplication!}
+          open={!!selectedApplication}
+          onClose={() => setSelectedApplication(undefined)}
+          onApplicationUpdate={onApplicationUpdate}
+        />
+      )}
     </div>
   );
 }

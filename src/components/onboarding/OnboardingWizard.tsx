@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronRight, ChevronLeft, Check, Sparkles } from "lucide-react";
 import Button from "@/components/ui/button";
@@ -7,6 +7,8 @@ import KnowledgeBase from "@/components/onboarding/steps/KnowledgeBase";
 import JobDirectories from "@/components/onboarding/steps/JobDirectories";
 import Preferences from "@/components/onboarding/steps/Preferences";
 import type { OnboardingStep, Resource } from "@/types";
+import KnowledgeBaseService from "@/services/knowledge";
+import { useUser } from "@/contexts/user/useUser";
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -56,8 +58,25 @@ export default function OnboardingWizard({
   const [currentStep, setCurrentStep] = useState<OnboardingStep>(1);
   const [direction, setDirection] = useState(1);
   const [resources, setResources] = useState<Resource[]>([]);
-  const [connectedDirectories, setConnectedDirectories] = useState<string[]>(
-    [],
+  const { preference } = useUser();
+
+  useEffect(() => {
+    KnowledgeBaseService.get().then((knowledge_base) =>
+      setResources(
+        knowledge_base.map((kb) => ({
+          id: kb.id,
+          name: kb.label,
+          content: kb.content,
+          type: kb.source.startsWith("document-upload") ? "file" : "manual",
+          createdAt: kb.last_updated,
+        })),
+      ),
+    );
+  }, []);
+
+  const connectedDirectories = useMemo(
+    () => preference?.directories ?? [],
+    [preference?.directories],
   );
 
   const currentStepIsValid = useMemo(() => {
@@ -218,13 +237,10 @@ export default function OnboardingWizard({
                   }
                 />
               )}
-              {currentStep === 2 && (
-                <JobDirectories
-                  connectedDirectories={connectedDirectories}
-                  onConnectionChange={setConnectedDirectories}
-                />
+              {currentStep === 2 && <JobDirectories />}
+              {currentStep === 3 && (
+                <Preferences preference={preference} onSubmit={onComplete} />
               )}
-              {currentStep === 3 && <Preferences onSubmit={onComplete} />}
             </motion.div>
           </AnimatePresence>
 

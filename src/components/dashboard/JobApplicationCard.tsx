@@ -3,11 +3,11 @@ import { MapPin, Calendar, ExternalLink } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { getMatchScoreBg } from "@/types";
-import type { Job } from "@/types";
+import type { Application } from "@/services/application";
 
-interface JobCardProps {
-  job: Job;
-  onClick: (job: Job) => void;
+interface ApplicationCardProps {
+  application: Application;
+  onClick: (application: Application) => void;
 }
 
 function formatRelativeDate(iso: string): string {
@@ -44,9 +44,12 @@ const modalityColors: Record<string, string> = {
   hybrid: "text-amber-600 bg-amber-50",
 };
 
-export default function JobCard({ job, onClick }: JobCardProps) {
-  const scoreBg = getMatchScoreBg(job.matchScore);
-  const initials = getCompanyInitials(job.company);
+export default function JobApplicationCard({
+  application,
+  onClick,
+}: ApplicationCardProps) {
+  const scoreBg = getMatchScoreBg(application.match_score);
+  const initials = getCompanyInitials(application.job.company);
 
   return (
     <motion.button
@@ -57,12 +60,12 @@ export default function JobCard({ job, onClick }: JobCardProps) {
       whileHover={{ y: -2, boxShadow: "0 4px 16px 0 rgb(0 0 0 / 0.07)" }}
       whileTap={{ scale: 0.98 }}
       transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-      onClick={() => onClick(job)}
+      onClick={() => onClick(application)}
       className={cn(
         "w-full text-left bg-white rounded-xl border border-slate-100 shadow-sm",
         "p-4 space-y-3 cursor-pointer group",
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        "transition-colors hover:border-slate-200"
+        "transition-colors hover:border-slate-200",
       )}
     >
       {/* Header row — company + match score */}
@@ -70,11 +73,11 @@ export default function JobCard({ job, onClick }: JobCardProps) {
         <div className="flex items-center gap-2.5 min-w-0">
           {/* Company avatar */}
           <Avatar className="h-7 w-7 rounded-lg shrink-0">
-            <AvatarImage src={job.companyLogoUrl} alt={job.company} />
+            <AvatarImage alt={application.job.company} />
             <AvatarFallback
               className={cn(
                 "rounded-lg text-[10px] font-bold",
-                "bg-slate-100 text-slate-600"
+                "bg-slate-100 text-slate-600",
               )}
             >
               {initials}
@@ -82,7 +85,7 @@ export default function JobCard({ job, onClick }: JobCardProps) {
           </Avatar>
 
           <span className="text-xs font-medium text-muted-foreground truncate">
-            {job.company}
+            {application.job.company}
           </span>
         </div>
 
@@ -90,17 +93,17 @@ export default function JobCard({ job, onClick }: JobCardProps) {
         <span
           className={cn(
             "text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full border shrink-0",
-            scoreBg
+            scoreBg,
           )}
         >
-          {job.matchScore}%
+          {application.match_score}%
         </span>
       </div>
 
       {/* Job title */}
       <div>
         <h3 className="text-sm font-semibold text-foreground leading-snug group-hover:text-primary transition-colors line-clamp-2">
-          {job.title}
+          {application.job.title}
         </h3>
       </div>
 
@@ -109,26 +112,34 @@ export default function JobCard({ job, onClick }: JobCardProps) {
         {/* Location */}
         <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
           <MapPin className="h-3 w-3 shrink-0" />
-          <span className="truncate max-w-25">{job.location.split("(")[0].trim()}</span>
+          <span className="truncate max-w-25">
+            {application.job.location.split("(")[0].trim()}
+          </span>
         </div>
 
         {/* Modality pill */}
-        <span
-          className={cn(
-            "text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-full",
-            modalityColors[job.jobType] ?? "text-slate-600 bg-slate-50"
-          )}
-        >
-          {modalityLabel[job.jobType] ?? job.jobType}
-        </span>
+        {application.job.modalities?.map((modality, i) => (
+          <span
+            key={i}
+            className={cn(
+              "text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-full",
+              modalityColors[modality] ?? "text-slate-600 bg-slate-50",
+            )}
+          >
+            {modalityLabel[modality] ?? modality}
+          </span>
+        ))}
       </div>
 
       {/* Footer row — salary + date */}
       <div className="flex items-center justify-between pt-1 border-t border-slate-50">
         {/* Salary */}
-        {job.salary ? (
+        {application.job.minimum_salary ? (
           <span className="text-[11px] font-mono text-muted-foreground truncate max-w-30">
-            {job.salary.replace("$", "").replace(",000", "k").replace(" –", "–")}
+            {new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: application.job.salary_currency,
+            }).format(application.job.minimum_salary)}{" "}
           </span>
         ) : (
           <span className="text-[11px] font-mono text-muted-foreground/50">
@@ -140,15 +151,17 @@ export default function JobCard({ job, onClick }: JobCardProps) {
         <div className="flex items-center gap-1.5 shrink-0">
           <Calendar className="h-3 w-3 text-muted-foreground/60" />
           <span className="text-[11px] font-mono text-muted-foreground/70">
-            {formatRelativeDate(job.dateApplied ?? job.dateFound)}
+            {application.applied_at
+              ? formatRelativeDate(application.applied_at)
+              : application.job.posted_at}
           </span>
         </div>
       </div>
 
       {/* Tags */}
-      {job.tags && job.tags.length > 0 && (
+      {/*{application.tags && item.tags.length > 0 && (
         <div className="flex items-center gap-1 flex-wrap -mt-1">
-          {job.tags.slice(0, 3).map((tag) => (
+          {item.tags.slice(0, 3).map((tag) => (
             <span
               key={tag}
               className="text-[10px] font-mono text-slate-500 bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded"
@@ -156,13 +169,13 @@ export default function JobCard({ job, onClick }: JobCardProps) {
               {tag}
             </span>
           ))}
-          {job.tags.length > 3 && (
+          {item.tags.length > 3 && (
             <span className="text-[10px] font-mono text-muted-foreground/60">
-              +{job.tags.length - 3}
+              +{item.tags.length - 3}
             </span>
           )}
         </div>
-      )}
+      )}*/}
 
       {/* "View details" hover hint */}
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 -mt-1">
